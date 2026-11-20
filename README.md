@@ -1,6 +1,6 @@
 # Bunker
 
-开源的 SPT（Single Player Tarkov）桌面启动器与 Mod 管理器。界面用 [mbui](https://github.com/AFK-surf/monoid/tree/main/libs/mbui)（MoonBit 写的 GPU 自绘 UI，Windows 上是 Direct3D 11 原生宿主）和它上面的组件库 [`libs/sf-ui`](https://github.com/AFK-surf/monoid/tree/main/libs/sf-ui)（`@sf`，暗色主题 + 暖砂金色调），本地逻辑在 Rust 写的 core 里，两者编译进同一个 `Bunker.exe`，没有 Electron、没有 Web 运行时、没有后台服务。
+开源的 SPT（Single Player Tarkov）桌面启动器与 Mod 管理器。界面用 [mbui](https://github.com/AFK-surf/monoid/tree/main/libs/mbui)（MoonBit 写的 GPU 自绘 UI，Windows 上是 Direct3D 11 原生宿主）和它上面的组件库 [`libs/sf-ui`](https://github.com/AFK-surf/monoid/tree/main/libs/sf-ui)（`@sf`，它的中性暗色主题，不设色彩主题），本地逻辑在 Rust 写的 core 里，两者编译进同一个 `Bunker.exe`，没有 Electron、没有 Web 运行时、没有后台服务。
 
 An open-source desktop launcher and mod manager for SPT (Single Player Tarkov): a native mbui window (MoonBit, drawn on the GPU) with a Rust core linked into the same executable.
 
