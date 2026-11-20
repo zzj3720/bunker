@@ -24,15 +24,16 @@ pub fn app(root : @view.View, s : @model.Store) -> Unit {
   })
   title_bar(root)
   root.box(fn(body) {
-    body.row(Is(true)).grow(Is(1.0)).ground(Is(c_app)) |> ignore
+    body.row(Is(true)).grow(Is(1.0)).basis(Is(Some(0.0))).min_height(Is(Some(0.0))).ground(Is(c_app)) |> ignore
     sidebar(body, s, inst_pop, inst_anchor)
     body.box(fn(main) {
       main.grow(Is(1.0)).basis(Is(Some(0.0))).min_width(Is(Some(0.0))).ground(Is(c_app)) |> ignore
       action_bar(main, s, role_pop, role_anchor)
       main.box(fn(content) {
-        content.grow(Is(1.0)).min_width(Is(Some(0.0))).clips(Is(true)) |> ignore
+        content.grow(Is(1.0)).basis(Is(Some(0.0))).min_height(Is(Some(0.0))).min_width(Is(Some(0.0))).clips(Is(true)) |> ignore
         content.pick(fn() { s.page.get() }, fn(v, page) {
-          v.grow(Is(1.0)) |> ignore
+          // (the page as tall as the window leaves it, never as its words: what is longer scrolls inside it)
+          v.grow(Is(1.0)).basis(Is(Some(0.0))).min_height(Is(Some(0.0))).min_width(Is(Some(0.0))) |> ignore
           match page {
             Play => play_page(v, s)
             Mods => mods_page(v, s, install_pop, install_anchor)
@@ -119,22 +120,20 @@ fn title_bar(root : @view.View) -> Unit {
       .height(Is(Some(24.0)))
       .radius(Is(6.0))
       .ground(Is(c_accent))
-      .lines_up(Is(Some(Middle)))
       |> ignore
-      m.box(fn(b) { b.words(Is("B"), ink=c_ink_on_accent, look=wl(13.0, weight=900)).margin(Is((7.0, 3.0, 0.0, 0.0))) |> ignore })
-      |> ignore
+      centred(m, fn(c) { c.box(fn(b) { b.words(Is("B"), ink=c_ink_on_accent, look=wl(13.0, weight=900)) |> ignore }) |> ignore })
     })
     |> ignore
     text(t, "Bunker", size=14.0, weight=700) |> ignore
     t.box(fn(b) {
       b.ground(Is(c_accent_soft)).edge(Is((1.0, 0xC8A25847L))).radius(Is(99.0)).padding(Is((7.0, 1.0, 7.0, 1.0))) |> ignore
-      b.words(Is("SPT 开源启动器"), ink=c_accent, look=wl(11.0, weight=500)) |> ignore
+      capsule_words(b, Is("SPT 开源启动器"), wl(11.0, weight=500), fn() { c_accent })
     })
     |> ignore
     spacer(t)
     t.box(fn(b) {
       b.edge(Is((1.0, c_border))).radius(Is(99.0)).padding(Is((12.0, 3.0, 12.0, 3.0))) |> ignore
-      b.words(Is("mbui 原生 · 本地 core · 支持 SPT 3.11 / 4.0 / 4.1+"), ink=c_muted, look=wl(11.5)) |> ignore
+      capsule_words(b, Is("mbui 原生 · 本地 core · 支持 SPT 3.11 / 4.0 / 4.1+"), wl(11.5), fn() { c_muted })
     })
     |> ignore
     spacer(t)
@@ -144,11 +143,9 @@ fn title_bar(root : @view.View) -> Unit {
         .width(Is(Some(36.0)))
         .height(Is(Some(28.0)))
         .radius(Is(5.0))
-        .lines_up(Is(Some(Middle)))
         .ground(By(fn() { if b.hovered() { if act == 3 { c_red } else { c_hover } } else { 0L } }))
         |> ignore
-        v.box(fn(w) { w.words(Is(glyph), ink=c_text2, look=wl(12.0)).margin(Is((13.0, 0.0, 0.0, 0.0))) |> ignore })
-        |> ignore
+        centred(v, fn(c) { c.box(fn(w) { w.words(Is(glyph), ink=c_text2, look=wl(12.0)) |> ignore }) |> ignore })
       })
       |> ignore
     }
@@ -211,7 +208,10 @@ fn sidebar(body : @view.View, s : @model.Store, pop : @headless.Popover, anchor 
     // the views
     sb.box(fn(nav) {
       nav.gap(Is(4.0)) |> ignore
-      nav.box(fn(l) { l.padding(Is((10.0, 4.0, 10.0, 4.0))).words(Is("工作台"), ink=c_muted, look=wl(11.0)) |> ignore })
+      nav.box(fn(l) {
+        l.padding(Is((10.0, 4.0, 10.0, 4.0))) |> ignore
+        l.box(fn(w) { w.words(Is("工作台"), ink=c_muted, look=wl(11.0)) |> ignore }) |> ignore
+      })
       |> ignore
       nav_item(nav, s, Play, "▶  启动与服务端", fn() {
         match s.server.get().state {
@@ -354,19 +354,19 @@ fn action_bar(main : @view.View, s : @model.Store, pop : @headless.Popover, anch
         .ground(Is(0x3B4A3EFFL))
         .edge(Is((1.0, 0xFFFFFF2EL)))
         |> ignore
-        a.box(fn(l) {
-          l
-          .margin(Is((9.0, 6.0, 0.0, 0.0)))
-          .words(By(fn() {
-            match s.current_character() {
-              Some(c) if c.side == "Usec" => "U"
-              Some(_) => "B"
-              None => "?"
-            }
-          }), ink=0xD6E8D8FFL, look=wl(11.0, weight=700))
+        centred(a, fn(c) {
+          c.box(fn(l) {
+            l.words(By(fn() {
+              match s.current_character() {
+                Some(c) if c.side == "Usec" => "U"
+                Some(_) => "B"
+                None => "?"
+              }
+            }), ink=0xD6E8D8FFL, look=wl(11.0, weight=700))
+            |> ignore
+          })
           |> ignore
         })
-        |> ignore
       })
       |> ignore
       v.box(fn(t) {

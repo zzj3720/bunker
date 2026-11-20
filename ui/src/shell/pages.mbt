@@ -34,7 +34,7 @@ fn snapshots_page(v : @view.View, s : @model.Store) -> Unit {
     .clips(Is(true))
     |> ignore
     tb.box(fn(sv) {
-      sv.grow(Is(1.0)).scrolls(@view.Scroll::new(), fn(list) {
+      sv.grow(Is(1.0)).basis(Is(Some(0.0))).min_height(Is(Some(0.0))).scrolls(@view.Scroll::new(), fn(list) {
       list.grow(Is(1.0)) |> ignore
       list.each(fn() { s.snapshots.get() }, fn(x) { x.id }, fn(r, snap) {
         table_row(r)
@@ -131,7 +131,7 @@ fn config_page(v : @view.View, s : @model.Store) -> Unit {
     |> ignore
     l.box(fn(line) { line.height(Is(Some(1.0))).ground(Is(c_border)) |> ignore }) |> ignore
     l.box(fn(sv) {
-      sv.grow(Is(1.0)).scrolls(@view.Scroll::new(), fn(list) {
+      sv.grow(Is(1.0)).basis(Is(Some(0.0))).min_height(Is(Some(0.0))).scrolls(@view.Scroll::new(), fn(list) {
       list.grow(Is(1.0)).padding(Is((8.0, 8.0, 8.0, 8.0))).gap(Is(2.0)) |> ignore
       list.each(fn() { s.configs.get() }, fn(c) { c.path }, fn(r, cf) {
         @headless.button(r, fn() { cf.get().path }, fn(_) {
@@ -177,6 +177,7 @@ fn config_page(v : @view.View, s : @model.Store) -> Unit {
     .basis(Is(Some(0.0)))
     .shrink(Is(1.0))
     .min_width(Is(Some(0.0)))
+    .min_height(Is(Some(0.0)))
     .clips(Is(true))
     .ground(Is(c_panel))
     .edge(Is((1.0, c_border)))
@@ -204,8 +205,11 @@ fn config_page(v : @view.View, s : @model.Store) -> Unit {
     })
     |> ignore
     ed.box(fn(fr) {
+      // (as tall as the editor's room, never its words': a long file scrolls inside it, its foot's buttons kept in sight)
       fr
       .grow(Is(1.0))
+      .basis(Is(Some(0.0)))
+      .min_height(Is(Some(0.0)))
       .min_width(Is(Some(0.0)))
       .clips(Is(true))
       .ground(Is(c_console))
@@ -215,7 +219,7 @@ fn config_page(v : @view.View, s : @model.Store) -> Unit {
       .hides(By(fn() { s.config_path.get() == "" }))
       |> ignore
       fr.box(fn(sv) {
-      sv.grow(Is(1.0)).scrolls(@view.Scroll::new(), fn(sc) {
+      sv.grow(Is(1.0)).basis(Is(Some(0.0))).min_height(Is(Some(0.0))).scrolls(@view.Scroll::new(), fn(sc) {
         sc.grow(Is(1.0)) |> ignore
         @ui.field(
           sc,

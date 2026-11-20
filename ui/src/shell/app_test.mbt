@@ -36,6 +36,18 @@ let plan_json : String =
   #|"conflicts":[],"skipped":["README.md"],"warnings":[],"files":3}
 
 ///|
+/// A config of 200 lines: longer than the editor's room.
+fn long_config() -> String {
+  let lines = ["{"]
+  for i = 0; i < 199; i = i + 1 {
+    lines.push("  \"key\{i}\": \{i},")
+  }
+  lines.push("  \"last\": true")
+  lines.push("}")
+  lines.join("\n")
+}
+
+///|
 fn answer(f : Fake, req : Json) -> Result[String, String] {
   let op = @model.jstr(req, "op")
   match op {
@@ -72,7 +84,7 @@ fn answer(f : Fake, req : Json) -> Result[String, String] {
       Ok(
         "[{\"path\":\"SPT_Runtime/user/mods/Skwizzy.LootingBots/Config/config.json\",\"kind\":\"json\",\"owner\":\"Skwizzy.LootingBots\",\"bytes\":2048},{\"path\":\"BepInEx/config/com.mpstark.dynamicmaps.cfg\",\"kind\":\"cfg\",\"owner\":\"BepInEx\",\"bytes\":900}]",
       )
-    "config.read" => Ok("{\"text\":\"{\\n  \\\"enabled\\\": true\\n}\"}")
+    "config.read" => Ok("{\"text\":\{Json::string(long_config()).stringify()}}")
     "config.check" => Ok("{\"ok\":true}")
     "config.save" => Ok("{\"backup\":\"x.json.bak\"}")
     "server.status" =>
@@ -309,8 +321,16 @@ test "config: a file opened from its mod's row, edited, checked and saved" {
   t.click(Button, label="SPT_Runtime/user/mods/Skwizzy.LootingBots/Config/config.json")
   t.run_for(100.0)
   assert_eq(s.config_path.get(), "SPT_Runtime/user/mods/Skwizzy.LootingBots/Config/config.json")
-  t.click(TextField, label="配置内容")
-  assert_eq(t.field_words(), "{\n  \"enabled\": true\n}")
+  // a long file: the editor scrolls, its foot's buttons whole in the window
+  let (bx, by, bw, bh) = t.get(Button, label="校验并保存").rect
+  assert_true(bx >= 0.0 && by >= 0.0 && bx + bw <= 1360.0 && by + bh <= 840.0, msg="校验并保存 at \{bx},\{by} \{bw}x\{bh}")
+  let (ux, uy, uw, uh) = t.get(Button, label="撤销修改").rect
+  assert_true(ux >= 0.0 && ux + uw <= 1360.0 && uy + uh <= 840.0, msg="撤销修改 at \{ux},\{uy}")
+  // (the field is as long as the file and scrolls in its frame: pressed near its top, where it shows)
+  let (fx, fy, _, _) = t.get(TextField, label="配置内容").rect
+  assert_true(fy >= 0.0 && fy < 840.0)
+  t.tap(fx + 40.0, fy + 20.0)
+  assert_eq(t.field_words(), long_config())
   t.type_text(" ")
   t.run_for(100.0)
   assert_true(f.ops().contains("config.check"))

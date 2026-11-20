@@ -261,12 +261,20 @@ fn tag_colors(t : TagTone) -> (Int64, Int64) {
 }
 
 ///|
+/// Words in a capsule: the frame (`b`: its ground, edge, corner and padding) lays its words out in a box of their own,
+/// so the padding is round them, and centres them across it.
+fn capsule_words(b : @view.View, words : @view.Live[String], look : @view.WordsLook, ink : () -> Int64) -> Unit {
+  b.row(Is(true)).lines_up(Is(Some(Middle))) |> ignore
+  b.box(fn(w) { w.words(words, look~).ink(By(ink)) |> ignore }) |> ignore
+}
+
+///|
 /// A tag: a state or a side, in its colour on its soft ground.
 fn tag(parent : @view.View, s : String, t : TagTone) -> @view.View {
   let (g, ink) = tag_colors(t)
   parent.box(fn(b) {
     b.ground(Is(g)).radius(Is(5.0)).padding(Is((7.0, 2.0, 7.0, 2.0))) |> ignore
-    b.words(Is(s), ink~, look=wl(11.0, weight=600)) |> ignore
+    capsule_words(b, Is(s), wl(11.0, weight=600), fn() { ink })
   })
 }
 
@@ -280,7 +288,7 @@ fn tag_by(parent : @view.View, s : () -> String, t : () -> TagTone) -> @view.Vie
     .radius(Is(5.0))
     .padding(By(fn() { if s() == "" { (0.0, 0.0, 0.0, 0.0) } else { (7.0, 2.0, 7.0, 2.0) } }))
     |> ignore
-    b.words(By(s), look=wl(11.0, weight=600)).ink(By(fn() { tag_colors(t()).1 })) |> ignore
+    capsule_words(b, By(s), wl(11.0, weight=600), fn() { tag_colors(t()).1 })
   })
 }
 
@@ -293,8 +301,17 @@ fn pill_by(parent : @view.View, s : () -> String, active : () -> Bool) -> @view.
     .radius(Is(99.0))
     .padding(Is((7.0, 1.0, 7.0, 1.0)))
     |> ignore
-    b.words(By(s), look=wl(11.0)).ink(By(fn() { if active() { c_accent } else { c_text2 } })) |> ignore
+    capsule_words(b, By(s), wl(11.0), fn() { if active() { c_accent } else { c_text2 } })
   })
+}
+
+///|
+/// What `make` puts in `v` centred both ways: `v` a row lining its own up at their middles, room shared either side.
+fn centred(v : @view.View, make : (@view.View) -> Unit) -> Unit {
+  v.row(Is(true)).lines_up(Is(Some(Middle))) |> ignore
+  spacer(v)
+  make(v)
+  spacer(v)
 }
 
 ///|

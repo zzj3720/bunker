@@ -74,27 +74,32 @@ fn mods_page(v : @view.View, s : @model.Store, pop : @headless.Popover, anchor :
     tb.box(fn(h) {
       table_row(h)
       h.height(Is(Some(48.0))).edge(Is((0.0, 0L))) |> ignore
-      let head = fn(label : String, w : Double?) {
+      let head = fn(label : String, w : Double?, at_end : Bool) {
         h.box(fn(c) {
           match w {
             Some(x) => c.width(Is(Some(x))) |> ignore
             None => c.grow(Is(1.0)).shrink(Is(1.0)) |> ignore
           }
-          c.words(Is(label), ink=c_text2, look=wl(12.0, weight=600)) |> ignore
+          // (as its rows' cells: the actions' head at its end, as their buttons are)
+          c.row(Is(true)).lines_up(Is(Some(Middle))) |> ignore
+          if at_end {
+            spacer(c)
+          }
+          c.box(fn(t) { t.words(Is(label), ink=c_text2, look=wl(12.0, weight=600)) |> ignore }) |> ignore
         })
         |> ignore
       }
-      head("启用", Some(col_switch))
-      head("Mod 名称与说明", None)
-      head("覆盖范围（成对追踪）", Some(col_sides))
-      head("版本", Some(col_version))
-      head("中文状态", Some(col_loc))
-      head("操作", Some(col_actions))
+      head("启用", Some(col_switch), false)
+      head("Mod 名称与说明", None, false)
+      head("覆盖范围（成对追踪）", Some(col_sides), false)
+      head("版本", Some(col_version), false)
+      head("中文状态", Some(col_loc), false)
+      head("操作", Some(col_actions), true)
     })
     |> ignore
     tb.box(fn(line) { line.height(Is(Some(1.0))).ground(Is(c_border)) |> ignore }) |> ignore
     tb.box(fn(sv) {
-      sv.grow(Is(1.0)).scrolls(@view.Scroll::new(), fn(list) {
+      sv.grow(Is(1.0)).basis(Is(Some(0.0))).min_height(Is(Some(0.0))).scrolls(@view.Scroll::new(), fn(list) {
       list.grow(Is(1.0)) |> ignore
       list.each(fn() { s.mods_shown() }, fn(m) { m.id }, fn(r, m) { mod_row(r, s, m) })
       list.show(fn() { s.mods_loaded.get() && s.mods_shown().is_empty() }, fn(e) {
