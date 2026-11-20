@@ -1,0 +1,7 @@
+/vendor/
+/out/
+/dist/
+ui/_build/
+ui/.mooncakes/
+core/target/
+*.log
