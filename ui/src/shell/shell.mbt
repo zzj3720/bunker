@@ -5,9 +5,9 @@
 
 ///|
 pub fn app(root : @view.View, s : @model.Store) -> Unit {
-  // (@sf's dark theme, its colour theme the sand-gold's hue (OKLCH 83°, #C8A258's): what its controls are drawn in)
+  // (@sf's neutral dark theme: what its controls and, through parts.mbt's colours, the whole window are drawn in)
   @sf.set_dark(Some(true))
-  @sf.set_accent("custom:83")
+  @sf.set_accent("")
   @ui.set_tree_theme(@sf.ui_theme)
   root.ground(Is(c_app)).grow(Is(1.0)) |> ignore
   let inst_anchor : Ref[@view.View?] = Ref(None)
@@ -124,7 +124,7 @@ fn title_bar(root : @view.View) -> Unit {
     |> ignore
     text(t, "Bunker", size=14.0, weight=700) |> ignore
     t.box(fn(b) {
-      b.ground(Is(c_accent_soft)).edge(Is((1.0, 0xC8A25847L))).radius(Is(99.0)).padding(Is((7.0, 1.0, 7.0, 1.0))) |> ignore
+      b.ground(Is(c_accent_soft)).edge(Is((1.0, c_border))).radius(Is(99.0)).padding(Is((7.0, 1.0, 7.0, 1.0))) |> ignore
       capsule_words(b, Is("SPT 开源启动器"), wl(11.0, weight=500), fn() { c_accent })
     })
     |> ignore
@@ -167,7 +167,7 @@ fn sidebar(body : @view.View, s : @model.Store, pop : @headless.Popover, anchor 
     // the instance capsule: what opens the instance popover
     let cap = pop.trigger(sb, fn() { "切换 SPT 实例" }, fn(v, d) {
       v
-      .ground(By(fn() { if d.open() || v.pointed() { 0x252A30FFL } else { c_elevated } }))
+      .ground(By(fn() { if d.open() || v.pointed() { c_hover } else { c_elevated } }))
       .edge(By(fn() { (1.0, if d.open() || v.pointed() { c_accent } else { c_border_strong }) }))
       .radius(Is(10.0))
       .padding(Is((12.0, 10.0, 12.0, 10.0)))
@@ -343,8 +343,8 @@ fn action_bar(main : @view.View, s : @model.Store, pop : @headless.Popover, anch
         .width(Is(Some(28.0)))
         .height(Is(Some(28.0)))
         .radius(Is(14.0))
-        .ground(Is(0x3B4A3EFFL))
-        .edge(Is((1.0, 0xFFFFFF2EL)))
+        .ground(Is(pal.chip))
+        .edge(Is((1.0, c_border_strong)))
         |> ignore
         centred(a, fn(c) {
           c.box(fn(l) {
@@ -354,7 +354,7 @@ fn action_bar(main : @view.View, s : @model.Store, pop : @headless.Popover, anch
                 Some(_) => "B"
                 None => "?"
               }
-            }), ink=0xD6E8D8FFL, look=wl(11.0, weight=700))
+            }), ink=c_text, look=wl(11.0, weight=700))
             |> ignore
           })
           |> ignore
@@ -445,7 +445,7 @@ fn instance_popover(p : @view.View, s : @model.Store) -> Unit {
             .radius(Is(8.0))
             .gap(Is(10.0))
             .cursor(Is(Some(Hand)))
-            .ground(By(fn() { if cur() { 0x2A2A24FFL } else if hb.hovered() { c_hover } else { c_elevated } }))
+            .ground(By(fn() { if cur() { c_selected } else if hb.hovered() { c_hover } else { c_elevated } }))
             .edge(By(fn() { (1.0, if cur() { c_accent } else { c_border }) }))
             |> ignore
             b.box(fn(t) {
@@ -622,7 +622,7 @@ fn role_popover(p : @view.View, s : @model.Store) -> Unit {
         .radius(Is(8.0))
         .gap(Is(10.0))
         .cursor(Is(Some(Hand)))
-        .ground(By(fn() { if cur() { 0x2A2A24FFL } else if hb.hovered() { c_hover } else { c_elevated } }))
+        .ground(By(fn() { if cur() { c_selected } else if hb.hovered() { c_hover } else { c_elevated } }))
         .edge(By(fn() { (1.0, if cur() { c_accent } else { c_border }) }))
         |> ignore
         b.box(fn(t) {

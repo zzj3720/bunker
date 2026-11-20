@@ -1,85 +1,83 @@
-// Bunker's looks: the dark tactical design (charcoal grounds, warm sand-gold, green and amber for states). Its controls
-// are still.fail's component library's (`@sf`, AFK-surf/monoid's libs/sf-ui, over mbui's headless components): its
-// buttons, switches, fields, pills, segmented choices, state dots, sidebar items, panels and toasts, in its dark theme
-// with a sand-gold colour theme of its own (shell.mbt sets them). What is here is the layout's: words, rows, cards.
+// Bunker's looks: still.fail's component library (`@sf`, AFK-surf/monoid's libs/sf-ui, over mbui's headless
+// components) in its neutral dark theme: its buttons, switches, fields, pills, segmented choices, state dots, sidebar
+// items, panels and toasts, and every colour of the window read from its palette (pal). What is here is the layout's:
+// words, rows, cards.
 
 ///|
-pub let c_app : Int64 = 0x111315FFL
+/// @sf's dark palette (its neutral one: no colour theme set), what every colour of the window is read from, so the
+/// window's grounds and @sf's controls are one set of greys.
+let pal : @sf.Palette = @sf.palette_of(true)
 
 ///|
-pub let c_sidebar : Int64 = 0x16191CFFL
+pub let c_app : Int64 = pal.bg
 
 ///|
-pub let c_panel : Int64 = 0x1B1F23FFL
+pub let c_sidebar : Int64 = pal.sidebar
 
 ///|
-pub let c_elevated : Int64 = 0x22272CFFL
+pub let c_panel : Int64 = pal.card
 
 ///|
-pub let c_hover : Int64 = 0x282E35FFL
+pub let c_elevated : Int64 = pal.raised
 
 ///|
-pub let c_border : Int64 = 0x2C323AFFL
+pub let c_hover : Int64 = pal.hover
 
 ///|
-pub let c_border_strong : Int64 = 0x3C444FFFL
+pub let c_border : Int64 = pal.line
 
 ///|
-pub let c_text : Int64 = 0xECEEF0FFL
+pub let c_border_strong : Int64 = pal.line_strong
 
 ///|
-pub let c_text2 : Int64 = 0x9AA4B0FFL
+pub let c_text : Int64 = pal.text
 
 ///|
-pub let c_muted : Int64 = 0x6C7682FFL
+pub let c_text2 : Int64 = pal.muted
 
 ///|
-pub let c_accent : Int64 = 0xC8A258FFL
+pub let c_muted : Int64 = pal.subtle
 
 ///|
-pub let c_accent_hover : Int64 = 0xD8B46AFFL
+pub let c_accent : Int64 = pal.accent
 
 ///|
-pub let c_accent_soft : Int64 = 0xC8A25824L
+pub let c_accent_soft : Int64 = pal.accent_bg
 
 ///|
-pub let c_green : Int64 = 0x4FB87AFFL
+pub let c_green : Int64 = pal.green
 
 ///|
-pub let c_green_soft : Int64 = 0x4FB87A24L
+pub let c_amber : Int64 = pal.warn_ink
 
 ///|
-pub let c_amber : Int64 = 0xE09F3EFFL
+pub let c_red : Int64 = pal.red
 
 ///|
-pub let c_amber_soft : Int64 = 0xE09F3E24L
+pub let c_blue : Int64 = pal.blue
 
 ///|
-pub let c_red : Int64 = 0xE05D5DFFL
+let c_titlebar : Int64 = pal.sidebar
 
 ///|
-pub let c_red_soft : Int64 = 0xE05D5D24L
+let c_actionbar : Int64 = pal.bg
 
 ///|
-pub let c_blue : Int64 = 0x5B9BD5FFL
+let c_console : Int64 = pal.code_ground
 
 ///|
-pub let c_blue_soft : Int64 = 0x5B9BD524L
+let c_console_text : Int64 = pal.text
 
 ///|
-let c_titlebar : Int64 = 0x131619FFL
+let c_ink_on_accent : Int64 = pal.bg
 
 ///|
-let c_actionbar : Int64 = 0x14171AFFL
+/// A row's ground while pointed at, over a card.
+let c_row_hover : Int64 = pal.hover
 
 ///|
-let c_console : Int64 = 0x0D0F11FFL
-
-///|
-let c_console_text : Int64 = 0xC8D1DCFFL
-
-///|
-let c_ink_on_accent : Int64 = 0x111315FFL
+/// What is chosen in a list (the current instance, character): @sf's selected ground.
+let c_selected : Int64 = pal.selected
 
 ///|
 fn wl(size : Double, weight? : Int = 400, wrap? : Bool = false) -> @view.WordsLook {

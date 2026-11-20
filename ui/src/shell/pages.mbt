@@ -39,7 +39,7 @@ fn snapshots_page(v : @view.View, s : @model.Store) -> Unit {
       list.each(fn() { s.snapshots.get() }, fn(x) { x.id }, fn(r, snap) {
         table_row(r)
         r.height(Is(Some(68.0))).edge(Is((0.0, 0L))) |> ignore
-        hover_ground(r, 0L, 0xFFFFFF06L)
+        hover_ground(r, 0L, c_row_hover)
         let confirm = @signals.signal(false)
         r.box(fn(c) {
           c.width(Is(Some(120.0))).gap(Is(3.0)) |> ignore

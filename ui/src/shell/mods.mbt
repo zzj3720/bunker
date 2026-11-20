@@ -187,7 +187,7 @@ fn mod_row(r : @view.View, s : @model.Store, m : @signals.Signal[@model.ModItem]
   table_row(r)
   // (a fixed height: a list's rows are laid out without measuring their words)
   r.height(Is(Some(76.0))) |> ignore
-  hover_ground(r, 0L, 0xFFFFFF06L)
+  hover_ground(r, 0L, c_row_hover)
   let confirm = @signals.signal(false)
   r.box(fn(c) {
     c.width(Is(Some(col_switch))) |> ignore
