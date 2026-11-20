@@ -28,6 +28,8 @@ if [ ! -f "$WV2/build/native/include/WebView2.h" ]; then
   unzip -q -o "$WV2.nupkg" -d "$WV2"
   rm -f "$WV2.nupkg"
 fi
+# (moon relinks the app only when MoonBit sources change: the core's library changing alone would leave the old one)
+rm -f "$MBUI/out/win/app/_build/native/$MODE/build/bunker/app/app.exe"
 MBUI_APP_MOD="$R/ui" APP=app MODE=$MODE bash "$MBUI/scripts/win.sh" build
 mkdir -p out/win
 cp -p "$MBUI/out/win/app/_build/native/$MODE/build/bunker/app/app.exe" out/win/Bunker.exe

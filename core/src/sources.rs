@@ -62,13 +62,26 @@ pub fn spt_in(text: &str) -> Vec<String> {
 
 pub struct GitHub {
     pub api: String,
+    /// github.com itself: its release pages, read when the API refuses (its 60 requests an hour for a machine
+    /// without a token used up)
+    pub web: String,
+    /// a token people set (`GITHUB_TOKEN`), raising the API's limit
+    pub token: Option<String>,
 }
 
 impl Default for GitHub {
     fn default() -> Self {
-        GitHub { api: std::env::var("BUNKER_GITHUB_API").unwrap_or_else(|_| "https://api.github.com".into()) }
+        let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+        GitHub {
+            api: env("BUNKER_GITHUB_API").unwrap_or_else(|| "https://api.github.com".into()),
+            web: env("BUNKER_GITHUB_WEB").unwrap_or_else(|| "https://github.com".into()),
+            token: env("BUNKER_GITHUB_TOKEN").or_else(|| env("GITHUB_TOKEN")),
+        }
     }
 }
+
+/// The API refused for its limit (403 or 429), not for the repository.
+const LIMITED: &str = "GitHub API 请求次数已用完";
 
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new().timeout(Duration::from_secs(60)).user_agent("Bunker (SPT launcher; github.com/zzj3720/bunker)").build()
@@ -112,17 +125,69 @@ fn pick_asset(rel: &Value, want: Option<&str>) -> Option<(String, String)> {
 }
 
 impl GitHub {
+    fn api_get(&self, path: &str, missing: String) -> Res<Value> {
+        let mut req = agent().get(path).set("Accept", "application/vnd.github+json");
+        if let Some(t) = &self.token {
+            req = req.set("Authorization", &format!("Bearer {t}"));
+        }
+        let resp = req.call().map_err(|e| match e {
+            ureq::Error::Status(404, _) => missing,
+            ureq::Error::Status(403 | 429, _) => LIMITED.to_string(),
+            e => format!("访问 GitHub 失败：{e}"),
+        })?;
+        resp.into_json().map_err(|e| format!("GitHub 返回无法解析：{e}"))
+    }
+
     fn get_release(&self, o: &str, r: &str, tag: Option<&str>) -> Res<Value> {
         let path = match tag {
             Some(t) => format!("{}/repos/{o}/{r}/releases/tags/{t}", self.api),
             None => format!("{}/repos/{o}/{r}/releases/latest", self.api),
         };
-        let resp = agent().get(&path).set("Accept", "application/vnd.github+json").call().map_err(|e| match e {
-            ureq::Error::Status(404, _) => format!("GitHub 上没有找到 {o}/{r} 的发布（Release）"),
-            ureq::Error::Status(403, _) => "GitHub API 请求次数已用完，请稍后再试".to_string(),
-            e => format!("访问 GitHub 失败：{e}"),
-        })?;
-        resp.into_json().map_err(|e| format!("GitHub 返回无法解析：{e}"))
+        match self.api_get(&path, format!("GitHub 上没有找到 {o}/{r} 的发布（Release）")) {
+            Err(e) if e == LIMITED => {
+                let rels = self.releases_web(o, r)?;
+                let found = match tag {
+                    Some(t) => rels.into_iter().find(|v| v.get("tag_name").and_then(|x| x.as_str()) == Some(t)),
+                    None => rels.into_iter().next(),
+                };
+                found.ok_or_else(|| format!("GitHub 上没有找到 {o}/{r} 的发布（Release）"))
+            }
+            x => x,
+        }
+    }
+
+    /// Releases read from github.com's own pages, shaped as the API gives them: the release feed (tags and titles,
+    /// newest first), each one's assets from its assets page. (Downloads from github.com are not counted against the
+    /// API's limit.)
+    pub fn releases_web(&self, o: &str, r: &str) -> Res<Vec<Value>> {
+        let get = |url: &str| -> Res<String> {
+            agent().get(url).call().map_err(|e| format!("访问 GitHub 失败：{e}"))?.into_string().map_err(|e| format!("GitHub 返回无法读取：{e}"))
+        };
+        let feed = get(&format!("{}/{o}/{r}/releases.atom", self.web))?;
+        let mut out = Vec::new();
+        for entry in feed.split("<entry>").skip(1).take(10) {
+            let Some(tag) = between(entry, "/releases/tag/", "\"").map(unescape_url) else { continue };
+            let title = between(entry, "<title>", "</title>").map(unescape_xml).unwrap_or_else(|| tag.clone());
+            let page = get(&format!("{}/{o}/{r}/releases/expanded_assets/{tag}", self.web)).unwrap_or_default();
+            let prefix = format!("href=\"/{o}/{r}/releases/download/");
+            let mut assets = Vec::new();
+            let mut rest = page.as_str();
+            while let Some(i) = rest.find(&prefix) {
+                rest = &rest[i + prefix.len()..];
+                let Some(end) = rest.find('"') else { break };
+                let path = &rest[..end];
+                if let Some(name) = path.rsplit('/').next() {
+                    let name = unescape_url(name);
+                    assets.push(serde_json::json!({"name": name, "browser_download_url": format!("{}/{o}/{r}/releases/download/{path}", self.web)}));
+                }
+                rest = &rest[end..];
+            }
+            out.push(serde_json::json!({"tag_name": tag, "name": title, "draft": false, "prerelease": false, "assets": assets}));
+        }
+        if out.is_empty() {
+            return err(format!("GitHub 上没有找到 {o}/{r} 的发布（Release）"));
+        }
+        Ok(out)
     }
 
     fn to_release(&self, o: &str, r: &str, v: &Value, asset: Option<&str>) -> Res<Release> {
@@ -137,13 +202,11 @@ impl GitHub {
 impl GitHub {
     fn releases(&self, o: &str, r: &str) -> Res<Vec<Value>> {
         let path = format!("{}/repos/{o}/{r}/releases?per_page=30", self.api);
-        let resp = agent().get(&path).set("Accept", "application/vnd.github+json").call().map_err(|e| match e {
-            ureq::Error::Status(404, _) => format!("GitHub 上没有找到 {o}/{r}"),
-            ureq::Error::Status(403, _) => "GitHub API 请求次数已用完，请稍后再试".to_string(),
-            e => format!("访问 GitHub 失败：{e}"),
-        })?;
-        let v: Value = resp.into_json().map_err(|e| format!("GitHub 返回无法解析：{e}"))?;
-        Ok(v.as_array().cloned().unwrap_or_default())
+        match self.api_get(&path, format!("GitHub 上没有找到 {o}/{r}")) {
+            Ok(v) => Ok(v.as_array().cloned().unwrap_or_default()),
+            Err(e) if e == LIMITED => self.releases_web(o, r),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -215,6 +278,35 @@ impl ModSource for GitHub {
     }
 }
 
+fn between<'a>(s: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let i = s.find(start)? + start.len();
+    let j = s[i..].find(end)? + i;
+    Some(&s[i..j])
+}
+
+fn unescape_xml(s: &str) -> String {
+    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+}
+
+/// `%XX` decoded (an asset's or tag's name in a link).
+fn unescape_url(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// SPT's mod site: recognised, not readable yet (no public API to list a mod's files).
 pub struct SpMod;
 
@@ -270,6 +362,60 @@ mod tests {
         assert_eq!(parse_github("https://example.com/a/b"), None);
         assert!(source_for("https://sp-mod.com/mods/1").unwrap().release("x").is_err());
         assert!(source_for("https://example.com").is_err());
+    }
+
+    /// A stand-in for GitHub whose API is out of requests: its release feed and assets page answer instead.
+    fn limited_github() -> String {
+        use std::io::{BufRead, BufReader, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://127.0.0.1:{}", l.local_addr().unwrap().port());
+        std::thread::spawn(move || {
+            for s in l.incoming().flatten() {
+                let mut s = s;
+                let mut rd = BufReader::new(s.try_clone().unwrap());
+                let mut line = String::new();
+                let _ = rd.read_line(&mut line);
+                loop {
+                    let mut h = String::new();
+                    if rd.read_line(&mut h).is_err() || h == "\r\n" || h.is_empty() {
+                        break;
+                    }
+                }
+                let path = line.split_whitespace().nth(1).unwrap_or("").to_string();
+                let body = if path.starts_with("/api/") {
+                    let _ = s.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    continue;
+                } else if path == "/Tylevo/UnityToolkit-New/releases.atom" {
+                    "<feed><title>x</title><entry><link rel=\"alternate\" href=\"https://github.com/Tylevo/UnityToolkit-New/releases/tag/v2.0.2\"/><title>UnityToolkit 2.0.2 for SPT 4.1.5</title></entry><entry><link href=\"https://github.com/Tylevo/UnityToolkit-New/releases/tag/v1.0.0\"/><title>1.0.0 for SPT 4.0</title></entry></feed>".to_string()
+                } else if path == "/Tylevo/UnityToolkit-New/releases/expanded_assets/v2.0.2" {
+                    "<a href=\"/Tylevo/UnityToolkit-New/releases/download/v2.0.2/SHA256SUMS.txt\">s</a><a href=\"/Tylevo/UnityToolkit-New/releases/download/v2.0.2/UnityToolkit-v2.0.2-SPT4.1.5.zip\" rel=\"nofollow\">z</a>".to_string()
+                } else if path == "/Tylevo/UnityToolkit-New/releases/expanded_assets/v1.0.0" {
+                    "<a href=\"/Tylevo/UnityToolkit-New/releases/download/v1.0.0/UnityToolkit%20v1.0.0-SPT4.0.1.zip\">z</a>".to_string()
+                } else {
+                    let _ = s.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    continue;
+                };
+                let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes());
+                let _ = s.write_all(body.as_bytes());
+            }
+        });
+        base
+    }
+
+    #[test]
+    fn api_out_of_requests_reads_the_release_pages() {
+        let base = limited_github();
+        let g = GitHub { api: format!("{base}/api"), web: base.clone(), token: None };
+        let url = "https://github.com/Tylevo/UnityToolkit-New";
+        let r = g.for_spt(url, "4.1").unwrap();
+        assert_eq!(r.tag, "v2.0.2");
+        assert_eq!(r.version, "2.0.2");
+        assert_eq!(r.asset_name, "UnityToolkit-v2.0.2-SPT4.1.5.zip");
+        assert_eq!(r.asset_url, format!("{base}/Tylevo/UnityToolkit-New/releases/download/v2.0.2/UnityToolkit-v2.0.2-SPT4.1.5.zip"));
+        let old = g.for_spt(url, "4.0").unwrap();
+        assert_eq!(old.asset_name, "UnityToolkit v1.0.0-SPT4.0.1.zip");
+        assert_eq!(g.latest(url).unwrap().tag, "v2.0.2");
+        assert_eq!(g.release("https://github.com/Tylevo/UnityToolkit-New/releases/tag/v1.0.0").unwrap().tag, "v1.0.0");
     }
 
     #[test]

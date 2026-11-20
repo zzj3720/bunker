@@ -459,3 +459,25 @@ test "the mods table: an outdated client DLL tagged, filtered, updated or turned
   assert_eq(@model.jarr(req, "ids")[0], Json::string("u-unitytoolkit"))
 }
 
+
+///|
+test "一键更新 from the check card asks the core to update it" {
+  let (t, _s, f) = window(mods=bad_mods_json)
+  t.click(Button, label="一键更新")
+  t.run_for(300.0)
+  assert_eq(@model.jstr(f.last("mods.fix_update"), "id"), "u-unitytoolkit", msg="the card's")
+}
+
+///|
+test "一键更新 from the row after its 禁用 was asked and cancelled" {
+  let (t2, _s2, f2) = window(mods=bad_mods_json)
+  t2.click(Button, label="◫  Mod 管理")
+  t2.run_for(300.0)
+  t2.click(Button, label="禁用")
+  t2.run_for(300.0)
+  t2.click(Button, label="取消")
+  t2.run_for(300.0)
+  t2.click(Button, label="一键更新")
+  t2.run_for(300.0)
+  assert_eq(@model.jstr(f2.last("mods.fix_update"), "id"), "u-unitytoolkit", msg="the row's, after asking and cancelling")
+}
