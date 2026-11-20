@@ -29,6 +29,22 @@ let mods_json : String =
   #|]}
 
 ///|
+/// The real 4.1.6 install's case: UnityToolkit built for SPT 4.0.1, two mods needing it.
+let bad_mods_json : String =
+  #|{"incompatible":1,"mods":[
+  #|{"id":"u-manimalicebreaker","name":"ManimalIcebreaker","version":"1.2.4","author":"","server":true,"client":true,"enabled":true,"managed":false,"roots":["SPT_Runtime/user/mods/ManimalIcebreaker","BepInEx/plugins/ManimalIcebreaker"],"files":18,"loc":{"status":"full","ch":412,"other":412,"langs":["ch","en"]},"source_kind":"","source_url":"","compat":"unknown","spt_range":"","dll_status":"compatible","built_for":"4.1.6","bad_dlls":[],"required_by":[],"requires":[{"id":"u-unitytoolkit","name":"UnityToolkit"}],"fix_url":""},
+  #|{"id":"u-manimalinterchange","name":"ManimalInterchange","version":"1.0.3","author":"","server":false,"client":true,"enabled":true,"managed":false,"roots":["BepInEx/plugins/ManimalInterchange"],"files":2,"loc":{"status":"na","ch":0,"other":0,"langs":[]},"source_kind":"","source_url":"","compat":"unknown","spt_range":"","dll_status":"unknown","built_for":"","bad_dlls":[],"required_by":[],"requires":[{"id":"u-unitytoolkit","name":"UnityToolkit"}],"fix_url":""},
+  #|{"id":"u-unitytoolkit","name":"UnityToolkit","version":"1.0.0","author":"","server":false,"client":true,"enabled":true,"managed":false,"roots":["BepInEx/plugins/UnityToolkit","BepInEx/patchers/UnityToolkit"],"files":17,"loc":{"status":"na","ch":0,"other":0,"langs":[]},"source_kind":"","source_url":"","compat":"unknown","spt_range":"","dll_status":"incompatible","built_for":"4.0.1","bad_dlls":[{"path":"BepInEx/plugins/UnityToolkit/UnityToolkit.dll","shown":"UnityToolkit\\UnityToolkit.dll","built_for":"4.0.1"}],"required_by":[{"id":"u-manimalicebreaker","name":"ManimalIcebreaker"},{"id":"u-manimalinterchange","name":"ManimalInterchange"}],"requires":[],"fix_url":"https://github.com/Tylevo/UnityToolkit-New"}
+  #|]}
+
+///|
+/// After the update: UnityToolkit 2.0.2, built for SPT 4.1.5.
+let fixed_mods_json : String =
+  #|{"incompatible":0,"mods":[
+  #|{"id":"unitytoolkit","name":"UnityToolkit","version":"2.0.2","author":"","server":false,"client":true,"enabled":true,"managed":true,"roots":["BepInEx/patchers/UnityToolkit","BepInEx/plugins/UnityToolkit"],"files":17,"loc":{"status":"na","ch":0,"other":0,"langs":[]},"source_kind":"github","source_url":"https://github.com/Tylevo/UnityToolkit-New","compat":"unknown","spt_range":"","dll_status":"compatible","built_for":"4.1.5","bad_dlls":[],"required_by":[{"id":"u-manimalicebreaker","name":"ManimalIcebreaker"}],"requires":[],"fix_url":"https://github.com/Tylevo/UnityToolkit-New"}
+  #|]}
+
+///|
 let plan_json : String =
   #|{"id":"p20261120-083000-000","instance":"C:\\Games\\SPT-4.1.6","archive":"Tyfon-UIFixes-6.0.4.zip","name":"Tyfon-UIFixes","version":"6.0.4","mod_id":"tyfon-uifixes","target":"SPT 4.1","replaces":"","adapted":true,"mappings":[
   #|{"from":"BepInEx/plugins/Tyfon.UIFixes.dll","to":"BepInEx/plugins/Tyfon.UIFixes.dll","side":"client","files":1},
@@ -64,6 +80,16 @@ fn answer(f : Fake, req : Json) -> Result[String, String] {
     "instances.add" | "instances.select" | "settings.set" | "mods.cancel_plan" => Ok("{}")
     "mods.list" => Ok(f.mods.val)
     "mods.set_enabled" => Ok("{\"id\":\"x\"}")
+    "mods.disable" => {
+      f.mods.val = fixed_mods_json
+      Ok("{\"ids\":[\"a\",\"b\",\"c\"]}")
+    }
+    "mods.fix_update" => {
+      f.mods.val = fixed_mods_json
+      Ok(
+        "{\"id\":\"unitytoolkit\",\"name\":\"UnityToolkit\",\"from_version\":\"1.0.0\",\"version\":\"2.0.2\",\"backup\":\".bunker/backups/unitytoolkit-20261120\",\"status\":\"compatible\",\"built_for\":\"4.1.5\",\"still_bad\":[]}",
+      )
+    }
     "mods.uninstall" => Ok("{\"removed\":12}")
     "mods.plan_bytes" | "mods.plan_url" => Ok(plan_json)
     "mods.install" =>
@@ -133,8 +159,8 @@ fn said(t : @ui.Tester) -> String {
 
 ///|
 /// The window 1360 by 840 with its stand-in core, started and its first answers taken.
-fn window() -> (@ui.Tester, @model.Store, Fake) {
-  let fake = { tester: Ref(None), asked: [], mods: Ref(mods_json) }
+fn window(mods? : String = mods_json) -> (@ui.Tester, @model.Store, Fake) {
+  let fake = { tester: Ref(None), asked: [], mods: Ref(mods) }
   let store = @model.Store::new({
     call: fn(id, j) { fake.call(id, j) },
     call_data: fn(id, j, _) { fake.call(id, j) },
@@ -340,3 +366,96 @@ test "config: a file opened from its mod's row, edited, checked and saved" {
   assert_eq(@model.jstr(f.last("config.save"), "path"), "SPT_Runtime/user/mods/Skwizzy.LootingBots/Config/config.json")
   assert_true(said(t).contains("已保存（原文件备份为 x.json.bak）"))
 }
+
+///|
+test "依赖与版本校验 names the client DLL built for another SPT and what needs it; 禁用 asks in place whether those go too" {
+  let (t, _s, f) = window(mods=bad_mods_json)
+  let words = said(t)
+  assert_true(words.contains("1 个客户端 Mod 与 SPT 4.1.6 不兼容"), msg=words)
+  assert_true(words.contains("UnityToolkit\\UnityToolkit.dll (SPT 4.0.1 ≠ 4.1.6) · 被 ManimalIcebreaker、ManimalInterchange 依赖"), msg=words)
+  assert_true(words.contains("不兼容"))
+  assert_false(words.contains("通过"))
+  assert_true(t.get(Button, label="一键更新").label == "一键更新")
+  t.click(Button, label="禁用")
+  t.run_for(100.0)
+  assert_false(f.ops().contains("mods.disable"), msg="others need it: asked first")
+  assert_eq(t.all(Dialog).length(), 0, msg="asked in the card itself, not in a popover")
+  assert_true(said(t).contains("ManimalIcebreaker、ManimalInterchange 将缺少前置而无法加载"))
+  t.click(Button, label="连同依赖一起禁用")
+  t.run_for(300.0)
+  let req = f.last("mods.disable")
+  assert_true(@model.jbool(req, "with_dependents"))
+  assert_eq(@model.jarr(req, "ids").length(), 1)
+  assert_true(said(t).contains("通过"), msg="read again: nothing outdated left")
+}
+
+///|
+test "一键启动游戏 is held while a client DLL is outdated: update, turn off (stepped in the same popover) or start anyway" {
+  let (t, s, f) = window(mods=bad_mods_json)
+  t.click(Button, label="▶ 一键启动游戏")
+  t.run_for(300.0)
+  assert_false(f.ops().contains("game.launch"), msg="held")
+  assert_eq(t.all(Dialog).length(), 1)
+  let words = said(t)
+  assert_true(words.contains("启动前检查"))
+  assert_true(words.contains("1 个不兼容"))
+  assert_true(words.contains("不兼容 4.0.1"))
+  assert_true(words.contains("Outdated Mods"))
+  // turning off: those needing it named in the same popover's second step
+  t.click(Button, label="禁用不兼容项")
+  t.run_for(300.0)
+  assert_eq(t.all(Dialog).length(), 1)
+  assert_eq(s.gate_step.get(), 2)
+  assert_true(said(t).contains("· ManimalInterchange"))
+  t.click(Button, label="‹ 返回")
+  t.run_for(300.0)
+  assert_eq(s.gate_step.get(), 1)
+  // updated: the check read again, the game started from the popover (its 一键更新: the last, the card's is first)
+  let ups = t.all(Button).filter(fn(b) { b.label == "一键更新" })
+  assert_eq(ups.length(), 2)
+  let (ux, uy, uw, uh) = ups[1].rect
+  t.tap(ux + uw / 2.0, uy + uh / 2.0)
+  t.run_for(300.0)
+  assert_eq(@model.jstr(f.last("mods.fix_update"), "id"), "u-unitytoolkit")
+  let words = said(t)
+  assert_true(words.contains("已全部处理"), msg=words)
+  assert_true(words.contains("已更新 UnityToolkit v1.0.0 → v2.0.2（适用 SPT 4.1.5"))
+  t.click(Button, label="启动游戏")
+  t.run_for(300.0)
+  assert_true(f.ops().contains("game.launch"))
+  assert_false(s.gate_open.get())
+}
+
+///|
+test "仍强制启动 starts the game past the check" {
+  let (t, s, f) = window(mods=bad_mods_json)
+  t.click(Button, label="▶ 一键启动游戏")
+  t.run_for(300.0)
+  t.click(Button, label="仍强制启动")
+  t.run_for(300.0)
+  assert_true(f.ops().contains("game.launch"))
+  assert_false(s.gate_open.get())
+}
+
+///|
+test "the mods table: an outdated client DLL tagged, filtered, updated or turned off from its row" {
+  let (t, s, f) = window(mods=bad_mods_json)
+  t.click(Button, label="◫  Mod 管理")
+  t.run_for(300.0)
+  let words = said(t)
+  assert_true(words.contains("不兼容 (1)"))
+  assert_true(words.contains("不兼容 4.0.1"))
+  assert_true(words.contains("客户端 UnityToolkit\\UnityToolkit.dll 为 SPT 4.0.1 编译，与本实例 SPT 4.1.6 不兼容 · 被 ManimalIcebreaker、ManimalInterchange 依赖"), msg=words)
+  t.click(Radio, label="不兼容 (1)")
+  t.run_for(300.0)
+  assert_eq(s.mods_shown().map(fn(m) { m.id }), ["u-unitytoolkit"])
+  t.click(Button, label="禁用")
+  t.run_for(300.0)
+  assert_true(said(t).contains("只禁用它，还是连同依赖它的 Mod 一起禁用"))
+  t.click(Button, label="仅禁用")
+  t.run_for(300.0)
+  let req = f.last("mods.disable")
+  assert_false(@model.jbool(req, "with_dependents"))
+  assert_eq(@model.jarr(req, "ids")[0], Json::string("u-unitytoolkit"))
+}
+

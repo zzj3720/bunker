@@ -2,7 +2,8 @@
 //! manifests) and those found installed (paired by name), their versions and Chinese localization; turning one off
 //! and on without leaving anything behind, and uninstalling one by its manifest.
 
-use crate::instance::{is_system_plugin, Instance};
+use crate::clientcheck::{self, BadDll, ModRef};
+use crate::instance::{is_system_patcher, is_system_plugin, Instance};
 use crate::manifest::{self, Manifest, Source};
 use crate::pever;
 use crate::util::*;
@@ -41,6 +42,16 @@ pub struct ModView {
     /// `ok` (says it works with this SPT), `mismatch`, `unknown`
     pub compat: String,
     pub spt_range: String,
+    /// its client assemblies against this SPT (`clientcheck`): `compatible`, `incompatible`, `unknown`, `` (none)
+    pub dll_status: String,
+    /// the SPT its client assemblies were built for (the outdated one's, if any)
+    pub built_for: String,
+    pub bad_dlls: Vec<BadDll>,
+    /// mods turned on that need it, and those it needs
+    pub required_by: Vec<ModRef>,
+    pub requires: Vec<ModRef>,
+    /// where an update built for this SPT comes from, `` when unknown
+    pub fix_url: String,
 }
 
 /// A name reduced for pairing a server part with a client part: the extension, separators, and the words that only
@@ -331,7 +342,13 @@ fn is_server_rel(inst: &Instance, r: &str) -> bool {
 /// Every mod of an instance, managed ones first by name, then those found installed.
 pub fn list(inst: &Instance) -> Vec<ModView> {
     let root = inst.root_path();
-    let manifests = manifest::load_all(&root);
+    let mut manifests = manifest::load_all(&root);
+    let mut loose = loose_patchers(inst, &manifests);
+    for m in manifests.iter_mut().filter(|m| m.source.kind == "adopted") {
+        let mine: Vec<String> = loose.iter().filter(|p| claims(&m.roots, p)).cloned().collect();
+        loose.retain(|p| !mine.contains(p));
+        m.roots.extend(mine);
+    }
     let mut owned: Vec<String> = Vec::new();
     let mut out = Vec::new();
     for m in &manifests {
@@ -357,12 +374,13 @@ pub fn list(inst: &Instance) -> Vec<ModView> {
             enabled: m.enabled,
             managed: m.source.kind != "adopted",
             roots: m.roots.clone(),
-            files: m.files.len(),
+            files: m.files.len().max(m.roots.iter().map(|r| manifest::files_under(&root, r).len()).sum()),
             loc: scan_loc(&server_paths),
             source_kind: m.source.kind.clone(),
             source_url: m.source.url.clone(),
             compat: spt_compat(&range, &inst.spt_version).into(),
             spt_range: range,
+            ..Default::default()
         });
     }
     // found installed: server folders and plugins not owned by a manifest
@@ -383,8 +401,12 @@ pub fn list(inst: &Instance) -> Vec<ModView> {
     let mut found = Vec::new();
     for s in servers {
         let sn = name_of(&s);
-        let mine: Vec<PathBuf> = clients.iter().filter(|c| pairs_with(&sn, &name_of(c))).cloned().collect();
+        let mut mine: Vec<PathBuf> = clients.iter().filter(|c| pairs_with(&sn, &name_of(c))).cloned().collect();
         clients.retain(|c| !mine.contains(c));
+        let names: Vec<String> = std::iter::once(sn.clone()).chain(mine.iter().map(|c| name_of(c))).collect();
+        let pats: Vec<String> = loose.iter().filter(|p| names.iter().any(|n| pairs_with(n, &name_of(Path::new(p))))).cloned().collect();
+        loose.retain(|p| !pats.contains(p));
+        mine.extend(pats.iter().map(|p| root.join(p)));
         let (pkg_name, mut version, author, range) = server_meta(&s);
         if version.is_empty() {
             version = mine.iter().map(|c| client_meta(c)).find(|v| !v.is_empty()).unwrap_or_default();
@@ -408,19 +430,27 @@ pub fn list(inst: &Instance) -> Vec<ModView> {
             source_url: String::new(),
             compat: spt_compat(&range, &inst.spt_version).into(),
             spt_range: range,
+            ..Default::default()
         });
     }
+    let mut lone: Vec<(PathBuf, Vec<String>)> = Vec::new();
     for c in clients {
-        let n = name_of(&c);
         let r = rel(&root, &c);
+        let pats: Vec<String> = loose.iter().filter(|p| claims(&[r.clone()], p)).cloned().collect();
+        loose.retain(|p| !pats.contains(p));
+        lone.push((c, std::iter::once(r).chain(pats).collect()));
+    }
+    lone.extend(loose.into_iter().map(|p| (root.join(&p), vec![p])));
+    for (c, roots) in lone {
+        let n = name_of(&c);
         found.push(ModView {
             id: String::new(),
             name: n.strip_suffix(".dll").unwrap_or(&n).to_string(),
             version: client_meta(&c),
             client: true,
             enabled: true,
-            files: manifest::files_under(&root, &r).len(),
-            roots: vec![r],
+            files: roots.iter().map(|r| manifest::files_under(&root, r).len()).sum(),
+            roots,
             loc: Loc { status: "na".into(), ..Default::default() },
             compat: "unknown".into(),
             ..Default::default()
@@ -440,14 +470,49 @@ pub fn list(inst: &Instance) -> Vec<ModView> {
         m.id = id;
         out.push(m);
     }
+    clientcheck::annotate(inst, &mut out);
     out
+}
+
+/// `BepInEx/patchers` entries no manifest names (SPT's own left out), relative to the root.
+fn loose_patchers(inst: &Instance, manifests: &[Manifest]) -> Vec<String> {
+    let root = inst.root_path();
+    let owned: Vec<String> = manifests.iter().flat_map(|m| m.roots.iter().map(|r| r.to_ascii_lowercase())).collect();
+    list_dir(&root.join("BepInEx").join("patchers"))
+        .into_iter()
+        .filter(|p| {
+            let n = name_of(p);
+            (p.is_dir() || n.to_ascii_lowercase().ends_with(".dll")) && !is_system_patcher(&n)
+        })
+        .map(|p| rel(&root, &p))
+        .filter(|r| !owned.contains(&r.to_ascii_lowercase()))
+        .collect()
+}
+
+/// Whether a patcher entry is the mod's whose roots these are: one of its plugins has its name (`plugins/UnityToolkit`
+/// and `patchers/UnityToolkit`).
+fn claims(roots: &[String], patcher: &str) -> bool {
+    let pn = name_of(Path::new(patcher));
+    roots.iter().any(|r| r.to_ascii_lowercase().starts_with("bepinex/plugins/") && pairs_with(&name_of(Path::new(r)), &pn))
 }
 
 /// A mod by its id; one found installed is taken over first (a manifest of what it has), so it can be turned off
 /// and uninstalled as precisely as one Bunker installed.
 pub fn take(inst: &Instance, id: &str) -> Res<Manifest> {
     let root = inst.root_path();
-    if let Some(m) = manifest::load(&root, id) {
+    if let Some(mut m) = manifest::load(&root, id) {
+        if m.source.kind == "adopted" {
+            // (a patcher of its plugin's name, found loose: its own too, so it goes off and on with it)
+            let all = manifest::load_all(&root);
+            let mine: Vec<String> = loose_patchers(inst, &all).into_iter().filter(|p| claims(&m.roots, p)).collect();
+            if !mine.is_empty() {
+                for p in &mine {
+                    m.files.extend(manifest::files_under(&root, p));
+                }
+                m.roots.extend(mine);
+                manifest::save(&root, &m)?;
+            }
+        }
         return Ok(m);
     }
     let v = list(inst).into_iter().find(|m| m.id == id).ok_or_else(|| format!("没有找到 Mod：{id}"))?;

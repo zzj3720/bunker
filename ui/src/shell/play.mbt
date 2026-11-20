@@ -200,29 +200,7 @@ fn checks_card(two : @view.View, s : @model.Store) -> Unit {
   card(two, fn(c) {
     c.grow(Is(1.0)).basis(Is(Some(0.0))).gap(Is(10.0)) |> ignore
     text(c, "启动前检查与快捷操作", size=14.0, weight=700) |> ignore
-    check_row(c, "依赖与版本校验", fn() {
-      let mods = s.mods.get()
-      let bad = mods.filter(fn(m) { m.compat == "mismatch" })
-      let v = match s.current_inst() {
-        Some(i) => i.spt_version
-        None => ""
-      }
-      if !bad.is_empty() {
-        "不兼容 SPT \{v}：\{bad.map(fn(m) { m.name }).join("、")}"
-      } else {
-        let known = mods.filter(fn(m) { m.compat == "ok" }).length()
-        "\{mods.length()} 个 Mod：\{known} 个声明兼容 SPT \{v}，其余未声明版本要求"
-      }
-    }, fn(r) {
-      tag_by(r, fn() {
-        if s.mods.get().iter().any(fn(m) { m.compat == "mismatch" }) {
-          "需处理"
-        } else {
-          "通过"
-        }
-      }, fn() { if s.mods.get().iter().any(fn(m) { m.compat == "mismatch" }) { Red } else { Green } })
-      |> ignore
-    })
+    deps_check(c, s)
     check_row(c, "启动前清理临时缓存", fn() { "清理 BepInEx 缓存与 EFT 临时文件" }, fn(r) {
       switch(r, "启动前清理临时缓存", fn() { s.clean_cache.get() }, fn(on) { s.set_setting("clean_cache", on) }) |> ignore
     })
@@ -263,3 +241,118 @@ fn kind_words(k : String) -> String {
     _ => "手动备份"
   }
 }
+
+///|
+/// The SPT the instance runs, said short (`4.1.6`).
+fn spt_of(s : @model.Store) -> String {
+  match s.current_inst() {
+    Some(i) => i.spt_version
+    None => ""
+  }
+}
+
+///|
+/// A client assembly not built for this SPT, as SPT's own warning names it, with what it was built for:
+/// `UnityToolkit\UnityToolkit.dll (SPT 4.0.1 ≠ 4.1.6)`.
+fn bad_words(m : @model.ModItem, spt : String) -> String {
+  let dlls = m.bad_dlls.map(fn(b) { "\{b.shown} (SPT \{b.built_for} ≠ \{spt})" }).join("、")
+  if m.required_by.is_empty() {
+    dlls
+  } else {
+    "\{dlls} · 被 \{m.needed_by()} 依赖"
+  }
+}
+
+///|
+/// 依赖与版本校验: what SPT checks as the game starts (each client assembly's SPT), and the server mods' declared
+/// ranges; the outdated named with what needs them, an update for this SPT or turning them off offered at once. Turning
+/// off what others need steps in where its buttons are: only it, or with those needing it.
+fn deps_check(c : @view.View, s : @model.Store) -> Unit {
+  // (the step of turning off: 1 the buttons, 2 asking whether those needing them go too)
+  let step = @signals.signal(1)
+  check_row(c, "依赖与版本校验", fn() {
+    let mods = s.mods.get()
+    let bad = s.incompatible()
+    let v = spt_of(s)
+    let ranges = mods.filter(fn(m) { m.compat == "mismatch" })
+    let lines = []
+    if !bad.is_empty() {
+      lines.push("\{bad.length()} 个客户端 Mod 与 SPT \{v} 不兼容，直接启动会被 SPT 拦截：")
+      for m in bad {
+        lines.push(bad_words(m, v))
+      }
+      let deps = @model.dependents_of(bad)
+      if step.get() == 2 && !deps.is_empty() {
+        lines.push("禁用后 \{deps.map(fn(d) { d.name }).join("、")} 将缺少前置而无法加载：只禁用不兼容项，还是连同依赖它们的 Mod 一起禁用？")
+      }
+    }
+    if !ranges.is_empty() {
+      lines.push("声明的 SPT 版本不符：\{ranges.map(fn(m) { m.name }).join("、")}")
+    }
+    if lines.is_empty() {
+      let checked = mods.filter(fn(m) { m.dll_status == "compatible" }).length()
+      let known = mods.filter(fn(m) { m.compat == "ok" }).length()
+      "\{mods.length()} 个 Mod：\{checked} 个客户端 DLL 按 SPT \{v} 编译，\{known} 个服务端声明兼容"
+    } else {
+      lines.join("\n")
+    }
+  }, fn(r) {
+    r.box(fn(right) {
+      right.row(Is(true)).gap(Is(8.0)).lines_up(Is(Some(Middle))) |> ignore
+      let bad = fn() { s.incompatible() }
+      right.pick(fn() { if bad().is_empty() { 0 } else { step.get() } }, fn(x, st) {
+        x.row(Is(true)).gap(Is(8.0)).lines_up(Is(Some(Middle))) |> ignore
+        if st == 1 {
+          x.show(fn() { bad().iter().any(fn(m) { m.fix_url != "" }) }, along_row=true, fn(y) {
+            button(y, "一键更新", fn() {
+              s.fix_mods(bad().filter(fn(m) { m.fix_url != "" }).map(fn(m) { m.id }))
+            }, tone=Primary, label_by=fn() { if s.busy.get() == "fixing" { "正在更新…" } else { "一键更新" } }, disabled=fn() {
+              s.busy.get() != ""
+            })
+            |> ignore
+          })
+          button(x, "禁用", fn() {
+            let list = @signals.untracked(fn() { bad() })
+            if @model.dependents_of(list).is_empty() {
+              s.disable_mods(list.map(fn(m) { m.id }), false)
+            } else {
+              step.set(2)
+            }
+          }, tone=Danger, disabled=fn() { s.busy.get() != "" })
+          |> ignore
+        } else if st == 2 {
+          button(x, "取消", fn() { step.set(1) }, tone=Ghost) |> ignore
+          button(x, "仅禁用它", fn() {
+            step.set(1)
+            s.disable_mods(@signals.untracked(fn() { bad() }).map(fn(m) { m.id }), false)
+          })
+          |> ignore
+          button(x, "连同依赖一起禁用", fn() {
+            step.set(1)
+            s.disable_mods(@signals.untracked(fn() { bad() }).map(fn(m) { m.id }), true)
+          }, tone=Danger)
+          |> ignore
+        }
+      })
+      tag_by(right, fn() {
+        if !bad().is_empty() {
+          "不兼容"
+        } else if s.mods.get().iter().any(fn(m) { m.compat == "mismatch" }) {
+          "需处理"
+        } else {
+          "通过"
+        }
+      }, fn() {
+        if !bad().is_empty() {
+          Red
+        } else if s.mods.get().iter().any(fn(m) { m.compat == "mismatch" }) {
+          Amber
+        } else {
+          Green
+        }
+      })
+    })
+    |> ignore
+  })
+}
+

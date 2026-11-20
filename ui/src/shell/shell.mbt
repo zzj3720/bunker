@@ -13,6 +13,7 @@ pub fn app(root : @view.View, s : @model.Store) -> Unit {
   let inst_anchor : Ref[@view.View?] = Ref(None)
   let role_anchor : Ref[@view.View?] = Ref(None)
   let install_anchor : Ref[@view.View?] = Ref(None)
+  let gate_anchor : Ref[@view.View?] = Ref(None)
   let inst_pop = @headless.Popover::new(fn() { s.inst_open.get() }, fn(o) {
     s.inst_open.set(o)
     if !o {
@@ -26,13 +27,19 @@ pub fn app(root : @view.View, s : @model.Store) -> Unit {
       s.drop_plan()
     }
   })
+  let gate_pop = @headless.Popover::new(fn() { s.gate_open.get() }, fn(o) {
+    s.gate_open.set(o)
+    if !o {
+      s.gate_step.set(1)
+    }
+  })
   title_bar(root)
   root.box(fn(body) {
     body.row(Is(true)).grow(Is(1.0)).basis(Is(Some(0.0))).min_height(Is(Some(0.0))).ground(Is(c_app)) |> ignore
     sidebar(body, s, inst_pop, inst_anchor)
     body.box(fn(main) {
       main.grow(Is(1.0)).basis(Is(Some(0.0))).min_width(Is(Some(0.0))).ground(Is(c_app)) |> ignore
-      action_bar(main, s, role_pop, role_anchor)
+      action_bar(main, s, role_pop, role_anchor, gate_anchor)
       main.box(fn(content) {
         content.grow(Is(1.0)).basis(Is(Some(0.0))).min_height(Is(Some(0.0))).min_width(Is(Some(0.0))).clips(Is(true)) |> ignore
         content.pick(fn() { s.page.get() }, fn(v, page) {
@@ -73,6 +80,14 @@ pub fn app(root : @view.View, s : @model.Store) -> Unit {
     install_pop.content(layer, fn() { "安装新 Mod" }, fn(p) {
       popover_panel(p, install_anchor, 600.0, End)
       install_popover(p, s)
+    })
+    |> ignore
+  })
+  root.show(fn() { s.gate_open.get() }, fn(layer) {
+    layer.over(Is(true)) |> ignore
+    gate_pop.content(layer, fn() { "启动前检查" }, fn(p) {
+      popover_panel(p, gate_anchor, 560.0, End)
+      gate_popover(p, s)
     })
     |> ignore
   })
@@ -310,7 +325,13 @@ fn page_title(p : @model.Page) -> (String, String) {
 }
 
 ///|
-fn action_bar(main : @view.View, s : @model.Store, pop : @headless.Popover, anchor : Ref[@view.View?]) -> Unit {
+fn action_bar(
+  main : @view.View,
+  s : @model.Store,
+  pop : @headless.Popover,
+  anchor : Ref[@view.View?],
+  gate_anchor : Ref[@view.View?],
+) -> Unit {
   main.box(fn(bar) {
     bar
     .row(Is(true))
@@ -396,14 +417,15 @@ fn action_bar(main : @view.View, s : @model.Store, pop : @headless.Popover, anch
       s.current.get() == "" || s.server.get().state == "stopping" || s.server.get().state == "external"
     })
     |> ignore
-    button(bar, "▶ 一键启动游戏", fn() { s.launch() }, tone=Primary, label_by=fn() {
+    // (held by the check before the game starts while client mods are not built for this SPT: its popover beside it)
+    let go = button(bar, "▶ 一键启动游戏", fn() { s.try_launch() }, tone=Primary, label_by=fn() {
       match s.game.get() {
         "launching" => "正在启动…"
         "running" => "游戏运行中"
         _ => "▶ 一键启动游戏"
       }
     }, disabled=fn() { s.current.get() == "" || (s.game.get() != "idle" && s.game.get() != "exited") })
-    |> ignore
+    gate_anchor.val = Some(go)
   })
   |> ignore
   main.box(fn(line) { line.height(Is(Some(1.0))).ground(Is(c_border)) |> ignore }) |> ignore
@@ -678,3 +700,116 @@ fn notice(root : @view.View, s : @model.Store) -> Unit {
   )
   |> ignore
 }
+
+///|
+/// The check before the game starts: the client mods SPT would stop the game for (built for another SPT), what needs
+/// them, and what to do: update them to builds for this SPT, turn them off (a second step, in the same popover, when
+/// others need them: with those or not), or start anyway. Once none is left it says so and starts the game.
+fn gate_popover(p : @view.View, s : @model.Store) -> Unit {
+  let spt = fn() { spt_of(s) }
+  row(p, 8.0, fn(h) {
+    h.padding(Is((18.0, 14.0, 14.0, 14.0))) |> ignore
+    text(h, "启动前检查", size=14.0, weight=700).grow(Is(1.0)) |> ignore
+    tag_by(h, fn() {
+      let n = s.incompatible().length()
+      if n == 0 {
+        "已全部处理"
+      } else {
+        "\{n} 个不兼容"
+      }
+    }, fn() { if s.incompatible().is_empty() { Green } else { Red } })
+  })
+  |> ignore
+  p.box(fn(line) { line.height(Is(Some(1.0))).ground(Is(c_border)) |> ignore }) |> ignore
+  p.pick(fn() { if s.incompatible().is_empty() { 0 } else { s.gate_step.get() } }, fn(b, step) {
+    b.padding(Is((18.0, 14.0, 18.0, 16.0))).gap(Is(12.0)) |> ignore
+    if step == 0 {
+      text(b, "✓ 客户端 Mod 都已按本实例的 SPT 编译，可以启动了。", size=12.5, ink=c_green, wrap=true) |> ignore
+      row(b, 10.0, fn(f) {
+        spacer(f)
+        button(f, "启动游戏", fn() { s.launch_past_gate() }, tone=Primary) |> ignore
+      })
+      |> ignore
+    } else if step == 1 {
+      text_by(b, fn() {
+        "这些客户端 Mod 不是为 SPT \{spt()} 编译的：直接启动的话，SPT 会弹出「Outdated Mods」并退出游戏。"
+      }, size=12.0, ink=c_text2, wrap=true)
+      |> ignore
+      b.box(fn(box) {
+        box
+        .ground(Is(c_console))
+        .edge(Is((1.0, c_border)))
+        .radius(Is(6.0))
+        .padding(Is((14.0, 12.0, 14.0, 12.0)))
+        .gap(Is(10.0))
+        |> ignore
+        box.each(fn() { s.incompatible() }, fn(m) { m.id }, fn(l, m) {
+          l.gap(Is(3.0)) |> ignore
+          row(l, 8.0, fn(t) {
+            text_by(t, fn() { m.get().name }, size=13.0, weight=700).shrink(Is(1.0)).cuts(Is(true)) |> ignore
+            tag_by(t, fn() { "不兼容 \{m.get().built_for}" }, fn() { Red })
+            spacer(t)
+            text_by(t, fn() { if m.get().fix_url != "" { "有兼容版本来源" } else { "需手动更新" } }, size=11.0, ink=c_muted) |> ignore
+          })
+          |> ignore
+          text_by(l, fn() { bad_words(m.get(), spt()) }, size=11.5, ink=c_console_text, wrap=true) |> ignore
+        })
+      })
+      |> ignore
+      row(b, 10.0, fn(f) {
+        button(f, "仍强制启动", fn() { s.launch_past_gate() }, tone=Ghost) |> ignore
+        spacer(f)
+        button(f, "禁用不兼容项", fn() {
+          let list = s.incompatible_now()
+          if @model.dependents_of(list).is_empty() {
+            s.disable_mods(list.map(fn(m) { m.id }), false)
+          } else {
+            s.gate_step.set(2)
+          }
+        }, tone=Danger, disabled=fn() { s.busy.get() != "" })
+        |> ignore
+        button(f, "一键更新", fn() {
+          s.fix_mods(s.incompatible_now().filter(fn(m) { m.fix_url != "" }).map(fn(m) { m.id }))
+        }, tone=Primary, label_by=fn() { if s.busy.get() == "fixing" { "正在更新…" } else { "一键更新" } }, disabled=fn() {
+          s.busy.get() != "" || !s.incompatible().iter().any(fn(m) { m.fix_url != "" })
+        })
+        |> ignore
+      })
+      |> ignore
+    } else {
+      // turning them off: those that need them, and whether they go too
+      text_by(b, fn() {
+        let names = s.incompatible().map(fn(m) { m.name }).join("、")
+        "下列 Mod 依赖 \{names}：只禁用不兼容项的话，它们会因缺少前置而无法加载。"
+      }, size=12.0, ink=c_text2, wrap=true)
+      |> ignore
+      b.box(fn(box) {
+        box
+        .ground(Is(c_console))
+        .edge(Is((1.0, c_border)))
+        .radius(Is(6.0))
+        .padding(Is((14.0, 12.0, 14.0, 12.0)))
+        .gap(Is(6.0))
+        |> ignore
+        box.each(fn() { @model.dependents_of(s.incompatible()) }, fn(d) { d.id }, fn(l, d) {
+          text_by(l, fn() { "· \{d.get().name}" }, size=12.0, ink=c_console_text) |> ignore
+        })
+      })
+      |> ignore
+      row(b, 10.0, fn(f) {
+        button(f, "‹ 返回", fn() { s.gate_step.set(1) }, tone=Ghost) |> ignore
+        spacer(f)
+        button(f, "仅禁用不兼容项", fn() { s.disable_mods(s.incompatible_now().map(fn(m) { m.id }), false) }, disabled=fn() {
+          s.busy.get() != ""
+        })
+        |> ignore
+        button(f, "连同依赖一起禁用", fn() { s.disable_mods(s.incompatible_now().map(fn(m) { m.id }), true) }, tone=Danger, disabled=fn() {
+          s.busy.get() != ""
+        })
+        |> ignore
+      })
+      |> ignore
+    }
+  })
+}
+

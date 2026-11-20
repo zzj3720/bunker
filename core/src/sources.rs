@@ -29,6 +29,35 @@ pub trait ModSource: Send + Sync {
     fn release(&self, url: &str) -> Res<Release>;
     /// The newest release of the mod a manifest's link names.
     fn latest(&self, url: &str) -> Res<Release>;
+    /// The newest release built for an SPT of this `major.minor` (`4.1`), where releases say which SPT they are for.
+    fn for_spt(&self, url: &str, _major_minor: &str) -> Res<Release> {
+        self.latest(url)
+    }
+}
+
+/// The SPT versions a text says it is for (`UnityToolkit-v2.0.2-SPT4.1.5.zip`, `for SPT 4.1.x`, `SPT-v4.0`), as
+/// `major.minor`.
+pub fn spt_in(text: &str) -> Vec<String> {
+    let l = text.to_ascii_lowercase();
+    let b = l.as_bytes();
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(i) = l[from..].find("spt").map(|i| i + from) {
+        let mut j = i + 3;
+        while j < b.len() && matches!(b[j], b' ' | b'-' | b'_' | b'v' | b'.') && j < i + 6 {
+            j += 1;
+        }
+        let start = j;
+        while j < b.len() && (b[j].is_ascii_digit() || b[j] == b'.') {
+            j += 1;
+        }
+        let mm = crate::clientcheck::major_minor(l[start..j].trim_end_matches('.'));
+        if !mm.is_empty() && !out.contains(&mm) {
+            out.push(mm);
+        }
+        from = i + 3;
+    }
+    out
 }
 
 pub struct GitHub {
@@ -105,6 +134,62 @@ impl GitHub {
     }
 }
 
+impl GitHub {
+    fn releases(&self, o: &str, r: &str) -> Res<Vec<Value>> {
+        let path = format!("{}/repos/{o}/{r}/releases?per_page=30", self.api);
+        let resp = agent().get(&path).set("Accept", "application/vnd.github+json").call().map_err(|e| match e {
+            ureq::Error::Status(404, _) => format!("GitHub 上没有找到 {o}/{r}"),
+            ureq::Error::Status(403, _) => "GitHub API 请求次数已用完，请稍后再试".to_string(),
+            e => format!("访问 GitHub 失败：{e}"),
+        })?;
+        let v: Value = resp.into_json().map_err(|e| format!("GitHub 返回无法解析：{e}"))?;
+        Ok(v.as_array().cloned().unwrap_or_default())
+    }
+}
+
+/// Of releases (newest first, as GitHub lists them), the newest for SPT `mm`: an asset that names it, else a release
+/// whose tag or title does; when none names any SPT, the newest. Drafts are skipped, pre-releases taken only when no
+/// full release is for it.
+pub fn pick_for_spt(rels: &[Value], mm: &str) -> Result<(usize, Option<String>), String> {
+    let s = |v: &Value, k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let ok_asset = |n: &str| {
+        let l = n.to_ascii_lowercase();
+        l.ends_with(".zip") || l.ends_with(".7z")
+    };
+    let mut named_any = Vec::new();
+    for pre in [false, true] {
+        for (i, r) in rels.iter().enumerate() {
+            if r.get("draft").and_then(|d| d.as_bool()).unwrap_or(false) || r.get("prerelease").and_then(|d| d.as_bool()).unwrap_or(false) != pre {
+                continue;
+            }
+            let assets: Vec<String> = r.get("assets").and_then(|a| a.as_array()).map(|a| a.iter().map(|x| s(x, "name")).filter(|n| ok_asset(n)).collect()).unwrap_or_default();
+            if assets.is_empty() {
+                continue;
+            }
+            for a in &assets {
+                let says = spt_in(a);
+                named_any.extend(says.clone());
+                if says.iter().any(|x| x == mm) {
+                    return Ok((i, Some(a.clone())));
+                }
+            }
+            let says: Vec<String> = [spt_in(&s(r, "tag_name")), spt_in(&s(r, "name"))].concat();
+            named_any.extend(says.clone());
+            if says.iter().any(|x| x == mm) {
+                return Ok((i, None));
+            }
+        }
+    }
+    if named_any.is_empty() {
+        if let Some(i) = rels.iter().position(|r| !r.get("draft").and_then(|d| d.as_bool()).unwrap_or(false) && !r.get("prerelease").and_then(|d| d.as_bool()).unwrap_or(false)) {
+            return Ok((i, None));
+        }
+    }
+    named_any.sort();
+    named_any.dedup();
+    Err(format!("没有适用于 SPT {mm} 的发布{}", if named_any.is_empty() { String::new() } else { format!("（现有的发布适用于 SPT {}）", named_any.join("、")) }))
+}
+
 impl ModSource for GitHub {
     fn id(&self) -> &'static str {
         "github"
@@ -121,6 +206,12 @@ impl ModSource for GitHub {
         let (o, r, _, _) = parse_github(url).ok_or("不是 GitHub 仓库链接")?;
         let v = self.get_release(&o, &r, None)?;
         self.to_release(&o, &r, &v, None)
+    }
+    fn for_spt(&self, url: &str, mm: &str) -> Res<Release> {
+        let (o, r, _, _) = parse_github(url).ok_or("不是 GitHub 仓库链接")?;
+        let rels = self.releases(&o, &r)?;
+        let (i, asset) = pick_for_spt(&rels, mm).map_err(|e| format!("{o}/{r}：{e}"))?;
+        self.to_release(&o, &r, &rels[i], asset.as_deref())
     }
 }
 
@@ -179,5 +270,26 @@ mod tests {
         assert_eq!(parse_github("https://example.com/a/b"), None);
         assert!(source_for("https://sp-mod.com/mods/1").unwrap().release("x").is_err());
         assert!(source_for("https://example.com").is_err());
+    }
+
+    #[test]
+    fn releases_for_an_spt() {
+        assert_eq!(spt_in("UnityToolkit-v2.0.2-SPT4.1.5.zip"), vec!["4.1"]);
+        assert_eq!(spt_in("UnityToolkit 2.0.2 for SPT 4.1.5"), vec!["4.1"]);
+        assert_eq!(spt_in("SAIN-SPT-v4.0.x.7z"), vec!["4.0"]);
+        assert!(spt_in("SAIN 4.2.1").is_empty());
+        let rel = |tag: &str, asset: &str, pre: bool| serde_json::json!({"tag_name": tag, "name": tag, "prerelease": pre, "draft": false, "assets": [{"name": asset, "browser_download_url": format!("https://x/{asset}")}, {"name": "SHA256SUMS.txt"}]});
+        let list = vec![
+            rel("v3.0.0", "UnityToolkit-v3.0.0-SPT4.2.0.zip", false),
+            rel("v2.0.2", "UnityToolkit-v2.0.2-SPT4.1.5.zip", false),
+            rel("v1.0.0", "UnityToolkit-v1.0.0-SPT4.0.1.zip", false),
+        ];
+        assert_eq!(pick_for_spt(&list, "4.1").unwrap(), (1, Some("UnityToolkit-v2.0.2-SPT4.1.5.zip".into())));
+        assert_eq!(pick_for_spt(&list, "4.0").unwrap().0, 2);
+        let e = pick_for_spt(&list, "3.11").unwrap_err();
+        assert!(e.contains("4.0、4.1、4.2"), "{e}");
+        // none says its SPT: the newest full release
+        let plain = vec![rel("v2", "a-2.zip", true), rel("v1", "a-1.zip", false)];
+        assert_eq!(pick_for_spt(&plain, "4.1").unwrap(), (1, None));
     }
 }

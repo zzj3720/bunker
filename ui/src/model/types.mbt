@@ -46,6 +46,44 @@ pub(all) struct ModItem {
   spt_range : String
   /// a newer release's version (`mods.check_updates`), or ``
   update : String
+  /// its client assemblies against this SPT: `compatible`, `incompatible`, `unknown`, `` (none)
+  dll_status : String
+  /// the SPT they were built for (`4.0.1`)
+  built_for : String
+  bad_dlls : Array[BadDll]
+  /// mods turned on that need it, and those it needs
+  required_by : Array[ModRef]
+  requires : Array[ModRef]
+  /// where an update built for this SPT comes from, ``: none known
+  fix_url : String
+}
+
+///|
+/// A client assembly not built for the instance's SPT.
+#derive(Eq, Debug)
+pub(all) struct BadDll {
+  path : String
+  /// as SPT's warning names it: `UnityToolkit\UnityToolkit.dll`
+  shown : String
+  built_for : String
+}
+
+///|
+#derive(Eq, Debug)
+pub(all) struct ModRef {
+  id : String
+  name : String
+}
+
+///|
+pub fn ModItem::incompatible(self : ModItem) -> Bool {
+  self.enabled && self.dll_status == "incompatible"
+}
+
+///|
+/// The names of the mods that need it: `ManimalIcebreaker、ManimalInterchange`.
+pub fn ModItem::needed_by(self : ModItem) -> String {
+  self.required_by.map(fn(r) { r.name }).join("、")
 }
 
 ///|
@@ -266,6 +304,14 @@ pub fn ModItem::from_json(j : Json) -> ModItem {
     compat: jstr(j, "compat"),
     spt_range: jstr(j, "spt_range"),
     update: "",
+    dll_status: jstr(j, "dll_status"),
+    built_for: jstr(j, "built_for"),
+    bad_dlls: jarr(j, "bad_dlls").map(fn(b) {
+      { path: jstr(b, "path"), shown: jstr(b, "shown"), built_for: jstr(b, "built_for") }
+    }),
+    required_by: jarr(j, "required_by").map(fn(r) { { id: jstr(r, "id"), name: jstr(r, "name") } }),
+    requires: jarr(j, "requires").map(fn(r) { { id: jstr(r, "id"), name: jstr(r, "name") } }),
+    fix_url: jstr(j, "fix_url"),
   }
 }
 

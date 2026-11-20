@@ -68,6 +68,14 @@ impl Instance {
 /// BepInEx/plugins entries SPT itself ships, never shown as mods.
 pub const SYSTEM_PLUGINS: &[&str] = &["spt", "configurationmanager"];
 
+/// BepInEx/patchers entries SPT itself ships.
+pub const SYSTEM_PATCHERS: &[&str] = &["spt", "spt-prepatch", "fixplugintypesserialization"];
+
+pub fn is_system_patcher(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    SYSTEM_PATCHERS.contains(&n.trim_end_matches(".dll"))
+}
+
 pub fn is_system_plugin(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     let n = n.trim_end_matches(".dll");

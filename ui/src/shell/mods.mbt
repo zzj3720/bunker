@@ -12,13 +12,14 @@ fn mods_page(v : @view.View, s : @model.Store, anchor : Ref[@view.View?]) -> Uni
     line_field(t, search, "搜索 Mod 名称、作者、DLL 或目录", width=300.0, edited=fn(q) { s.mods_query.set(q) }) |> ignore
     // (the filters: @sf's segmented choice, each with its count)
     let count = fn(f : (@model.ModItem) -> Bool) { s.mods.get().filter(f).length() }
-    let keys = ["all", "on", "off", "update"]
+    let keys = ["all", "on", "off", "update", "bad"]
     @sf.seg_node(t, fn() {
       [
         "全部 (\{count(fn(_) { true })})",
         "已启用 (\{count(fn(m) { m.enabled })})",
         "已禁用 (\{count(fn(m) { !m.enabled })})",
         "可更新 (\{count(fn(m) { m.update != "" })})",
+        "不兼容 (\{count(fn(m) { m.incompatible() })})",
       ]
     }, fn() { keys.search(s.mods_filter.get()).unwrap_or(0) }, fn(i) { s.mods_filter.set(keys[i]) }, said="Mod 筛选")
     |> ignore
@@ -142,7 +143,7 @@ let col_version : Double = 110.0
 let col_loc : Double = 96.0
 
 ///|
-let col_actions : Double = 170.0
+let col_actions : Double = 260.0
 
 ///|
 fn table_row(r : @view.View) -> Unit {
@@ -160,8 +161,14 @@ fn loc_tag(m : @model.ModItem) -> (String, TagTone) {
 }
 
 ///|
-fn mod_desc(m : @model.ModItem) -> String {
-  if !m.enabled {
+fn mod_desc(m : @model.ModItem, spt : String, asking : Bool) -> String {
+  if asking {
+    "禁用后 \{m.needed_by()} 将缺少前置而无法加载：只禁用它，还是连同依赖它的 Mod 一起禁用？"
+  } else if m.incompatible() {
+    let dlls = m.bad_dlls.map(fn(b) { b.shown }).join("、")
+    let need = if m.required_by.is_empty() { "" } else { " · 被 \{m.needed_by()} 依赖" }
+    "客户端 \{dlls} 为 SPT \{m.built_for} 编译，与本实例 SPT \{spt} 不兼容\{need}"
+  } else if !m.enabled {
     "已安全禁用（\{m.files} 个文件暂存于 .bunker/disabled/\{m.id}，可一键恢复）"
   } else if m.update != "" {
     "发现新版本 v\{m.update}（来自 GitHub Releases）"
@@ -189,6 +196,8 @@ fn mod_row(r : @view.View, s : @model.Store, m : @signals.Signal[@model.ModItem]
   r.height(Is(Some(76.0))) |> ignore
   hover_ground(r, 0L, c_row_hover)
   let confirm = @signals.signal(false)
+  // (turning off what others need: the row asks whether those go too, its actions stepped to the answers)
+  let asking = @signals.signal(false)
   r.box(fn(c) {
     c.width(Is(Some(col_switch))) |> ignore
     switch(c, "启用", fn() { m.get().enabled }, fn(on) { s.set_mod_enabled(m.untracked().id, on) }, label_by=fn() {
@@ -202,8 +211,10 @@ fn mod_row(r : @view.View, s : @model.Store, m : @signals.Signal[@model.ModItem]
     text_by(c, fn() { m.get().name }, size=14.0, weight=700, ink_by=fn() { if m.get().enabled { c_text } else { c_muted } })
     .cuts(Is(true))
     |> ignore
-    text_by(c, fn() { mod_desc(m.get()) }, size=12.0, ink_by=fn() {
-      if m.get().update != "" && m.get().enabled {
+    text_by(c, fn() { mod_desc(m.get(), spt_of(s), asking.get()) }, size=12.0, ink_by=fn() {
+      if m.get().incompatible() || asking.get() {
+        c_red
+      } else if m.get().update != "" && m.get().enabled {
         c_amber
       } else if m.get().enabled {
         c_text2
@@ -222,7 +233,7 @@ fn mod_row(r : @view.View, s : @model.Store, m : @signals.Signal[@model.ModItem]
   })
   |> ignore
   r.box(fn(c) {
-    c.width(Is(Some(col_version))) |> ignore
+    c.width(Is(Some(col_version))).gap(Is(4.0)) |> ignore
     text_by(c, fn() {
       let v = m.get().version
       if v == "" {
@@ -234,6 +245,11 @@ fn mod_row(r : @view.View, s : @model.Store, m : @signals.Signal[@model.ModItem]
       }
     }, size=13.0, ink=c_text2)
     |> ignore
+    c.box(fn(t) {
+      t.row(Is(true)) |> ignore
+      tag_by(t, fn() { if m.get().incompatible() { "不兼容 \{m.get().built_for}" } else { "" } }, fn() { Red })
+    })
+    |> ignore
   })
   |> ignore
   r.box(fn(c) {
@@ -244,35 +260,82 @@ fn mod_row(r : @view.View, s : @model.Store, m : @signals.Signal[@model.ModItem]
   r.box(fn(c) {
     c.width(Is(Some(col_actions))).row(Is(true)).gap(Is(8.0)).lines_up(Is(Some(Middle))) |> ignore
     spacer(c)
-    c.show(fn() { m.get().update != "" }, fn(x) {
-      button(x, "更新", fn() { s.update_mod(m.untracked().id) }, small=true, tone=Primary) |> ignore
-    })
-    button(c, "配置", fn() {
-      let roots = m.untracked().roots
-      let owners = roots.map(fn(rt) {
-        match rt.rev_find("/") {
-          Some(i) => rt[i + 1:].to_owned()
-          None => rt
-        }
-      })
-      s.page.set(Config)
-      match s.configs.untracked().search_by(fn(cf) { owners.contains(cf.owner) }) {
-        Some(i) => s.open_config(s.configs.untracked()[i].path)
-        None => s.say("这个 Mod 没有可编辑的配置文件（JSON / JSONC / CFG）")
-      }
-    }, small=true)
-    |> ignore
-    button(c, "卸载", fn() {
-      if confirm.untracked() {
-        confirm.set(false)
-        s.uninstall(m.untracked().id)
+    c.pick(fn() { if asking.get() { 2 } else if m.get().incompatible() { 1 } else { 0 } }, fn(x, kind) {
+      x.row(Is(true)).gap(Is(8.0)).lines_up(Is(Some(Middle))) |> ignore
+      if kind == 2 {
+        button(x, "取消", fn() { asking.set(false) }, small=true, tone=Ghost) |> ignore
+        button(x, "仅禁用", fn() {
+          asking.set(false)
+          s.disable_mods([m.untracked().id], false)
+        }, small=true)
+        |> ignore
+        button(x, "连同依赖", fn() {
+          asking.set(false)
+          s.disable_mods([m.untracked().id], true)
+        }, small=true, tone=Danger)
+        |> ignore
+      } else if kind == 1 {
+        x.show(fn() { m.get().fix_url != "" }, along_row=true, fn(y) {
+          button(y, "一键更新", fn() { s.fix_mods([m.untracked().id]) }, small=true, tone=Primary, label_by=fn() {
+            if s.busy.get() == "fixing" {
+              "正在更新…"
+            } else {
+              "一键更新"
+            }
+          }, disabled=fn() { s.busy.get() != "" })
+          |> ignore
+        })
+        button(x, "禁用", fn() {
+          if m.untracked().required_by.is_empty() {
+            s.disable_mods([m.untracked().id], false)
+          } else {
+            asking.set(true)
+          }
+        }, small=true, tone=Danger, disabled=fn() { s.busy.get() != "" })
+        |> ignore
+        uninstall_button(x, s, m, confirm)
       } else {
-        confirm.set(true)
+        x.show(fn() { m.get().update != "" }, along_row=true, fn(y) {
+          button(y, "更新", fn() { s.update_mod(m.untracked().id) }, small=true, tone=Primary) |> ignore
+        })
+        button(x, "配置", fn() {
+          let roots = m.untracked().roots
+          let owners = roots.map(fn(rt) {
+            match rt.rev_find("/") {
+              Some(i) => rt[i + 1:].to_owned()
+              None => rt
+            }
+          })
+          s.page.set(Config)
+          match s.configs.untracked().search_by(fn(cf) { owners.contains(cf.owner) }) {
+            Some(i) => s.open_config(s.configs.untracked()[i].path)
+            None => s.say("这个 Mod 没有可编辑的配置文件（JSON / JSONC / CFG）")
+          }
+        }, small=true)
+        |> ignore
+        uninstall_button(x, s, m, confirm)
       }
-    }, small=true, tone=Danger, label_by=fn() { if confirm.get() { "确认卸载" } else { "卸载" } }, disabled=fn() {
-      s.busy.get() == "uninstalling"
     })
-    |> ignore
+  })
+  |> ignore
+}
+
+///|
+fn uninstall_button(
+  x : @view.View,
+  s : @model.Store,
+  m : @signals.Signal[@model.ModItem],
+  confirm : @signals.Signal[Bool],
+) -> Unit {
+  button(x, "卸载", fn() {
+    if confirm.untracked() {
+      confirm.set(false)
+      s.uninstall(m.untracked().id)
+    } else {
+      confirm.set(true)
+    }
+  }, small=true, tone=Danger, label_by=fn() { if confirm.get() { "确认卸载" } else { "卸载" } }, disabled=fn() {
+    s.busy.get() == "uninstalling"
   })
   |> ignore
 }

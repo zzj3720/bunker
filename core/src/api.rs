@@ -4,7 +4,7 @@
 use crate::instance::{self, Instance};
 use crate::manifest::Source;
 use crate::util::*;
-use crate::{config, game, install, manifest, mods, profiles, server, snapshot, sources, spt_http};
+use crate::{clientcheck, config, game, install, manifest, mods, profiles, server, snapshot, sources, spt_http};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -227,7 +227,9 @@ pub fn dispatch_data(req: &Value, data: Option<Vec<u8>>) -> Res<Value> {
             let client = list.iter().filter(|m| m.client && m.enabled).count();
             let content: Vec<&mods::ModView> = list.iter().filter(|m| m.loc.status != "na").collect();
             let localized = content.iter().filter(|m| m.loc.status == "full").count();
+            let incompatible = list.iter().filter(|m| m.dll_status == "incompatible").count();
             Ok(json!({
+                "incompatible": incompatible,
                 "mods": list,
                 "enabled": enabled,
                 "server": server,
@@ -242,8 +244,30 @@ pub fn dispatch_data(req: &Value, data: Option<Vec<u8>>) -> Res<Value> {
             if server::up(&i) {
                 return err("服务端正在运行：先停止服务端再启用/禁用 Mod");
             }
-            let id = mods::set_enabled(&i, arg(req, "id")?, on)?;
-            Ok(json!({"id": id}))
+            let id = arg(req, "id")?;
+            if !on && req.get("with_dependents").and_then(|b| b.as_bool()).unwrap_or(false) {
+                let ids = clientcheck::disable(&i, &[id.to_string()], true)?;
+                return Ok(json!({"id": ids.last().cloned().unwrap_or_default(), "ids": ids}));
+            }
+            let id = mods::set_enabled(&i, id, on)?;
+            Ok(json!({"id": id, "ids": [id]}))
+        }
+        "mods.disable" => {
+            // several at once (the incompatible ones), each with those needing it when asked
+            let i = inst_of(req)?;
+            if server::up(&i) {
+                return err("服务端正在运行：先停止服务端再启用/禁用 Mod");
+            }
+            let ids: Vec<String> = req.get("ids").and_then(|v| v.as_array()).ok_or("缺少参数 ids")?.iter().filter_map(|x| x.as_str().map(String::from)).collect();
+            let dependents = req.get("with_dependents").and_then(|b| b.as_bool()).unwrap_or(false);
+            Ok(json!({"ids": clientcheck::disable(&i, &ids, dependents)?}))
+        }
+        "mods.fix_update" => {
+            let i = inst_of(req)?;
+            if server::up(&i) {
+                return err("服务端正在运行：先停止服务端再更新 Mod");
+            }
+            to_json(clientcheck::fix_update(&i, arg(req, "id")?)?)
         }
         "mods.uninstall" => {
             let i = inst_of(req)?;

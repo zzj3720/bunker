@@ -66,6 +66,10 @@ pub struct Store {
   install_open : @signals.Signal[Bool]
   install_step : @signals.Signal[Int]
   plan : @signals.Signal[Plan?]
+  /// the check before the game starts: open while client mods not built for this SPT hold it, at its step (1 the
+  /// list, 2 turning them off with or without those needing them)
+  gate_open : @signals.Signal[Bool]
+  gate_step : @signals.Signal[Int]
   /// what is under way (`installing`, `planning`, `starting`…), ``: nothing
   busy : @signals.Signal[String]
   notice : @signals.Signal[Notice?]
@@ -107,6 +111,8 @@ pub fn Store::new(core : Core, offset_min? : Int = 0) -> Store {
     install_open: @signals.signal(false),
     install_step: @signals.signal(1),
     plan: @signals.signal(None),
+    gate_open: @signals.signal(false),
+    gate_step: @signals.signal(1),
     busy: @signals.signal(""),
     notice: @signals.signal(None),
   }
@@ -582,6 +588,127 @@ pub fn Store::update_mod(self : Store, id : String) -> Unit {
 }
 
 ///|
+/// The mods turned on whose client assemblies are not built for this SPT (read as they change).
+pub fn Store::incompatible(self : Store) -> Array[ModItem] {
+  self.mods.get().filter(fn(m) { m.incompatible() })
+}
+
+///|
+/// As `incompatible`, read in a handler (not followed).
+pub fn Store::incompatible_now(self : Store) -> Array[ModItem] {
+  self.mods.untracked().filter(fn(m) { m.incompatible() })
+}
+
+///|
+/// Mods turned on that need any of these and are not among them.
+pub fn dependents_of(list : Array[ModItem]) -> Array[ModRef] {
+  let out : Array[ModRef] = []
+  for m in list {
+    for r in m.required_by {
+      if !list.iter().any(fn(x) { x.id == r.id }) && !out.iter().any(fn(x) { x.id == r.id }) {
+        out.push(r)
+      }
+    }
+  }
+  out
+}
+
+///|
+/// Turns mods off, with those that need them when `dependents`.
+pub fn Store::disable_mods(self : Store, ids : Array[String], dependents : Bool) -> Unit {
+  if ids.is_empty() {
+    return
+  }
+  self.busy.set("disabling")
+  self.ask("mods.disable", [self.inst_arg(), ("ids", Json::array(ids.map(Json::string))), ("with_dependents", Json::boolean(dependents))], fn(
+    good,
+    v,
+  ) {
+    self.busy.set("")
+    if good {
+      let n = jarr(v, "ids").length()
+      self.say("已安全禁用 \{n} 个 Mod（文件暂存于 .bunker/disabled，可一键恢复）")
+    } else {
+      self.say(
+        match v {
+          String(s) => s
+          _ => "禁用失败"
+        },
+        bad=true,
+      )
+    }
+    self.gate_step.set(1)
+    self.load_mods()
+  })
+}
+
+///|
+/// Updates the mods to their builds for this SPT, one after another (`mods.fix_update`: the old files backed up
+/// first, the client check run again after).
+pub fn Store::fix_mods(self : Store, ids : Array[String]) -> Unit {
+  if ids.is_empty() {
+    return
+  }
+  self.busy.set("fixing")
+  let fixed : Array[String] = []
+  fn next(i : Int) -> Unit {
+    if i >= ids.length() {
+      self.busy.set("")
+      self.load_mods()
+      self.load_snapshots()
+      self.load_configs()
+      if fixed.length() > 0 {
+        self.say(fixed.join("；"))
+      }
+      return
+    }
+    self.ask("mods.fix_update", [self.inst_arg(), ("id", Json::string(ids[i]))], fn(good, v) {
+      if good {
+        let ok = jstr(v, "status") != "incompatible"
+        let words = "已更新 \{jstr(v, "name")} v\{jstr(v, "from_version")} → v\{jstr(v, "version")}（适用 SPT \{jstr(v, "built_for")}，旧文件备份在 \{jstr(v, "backup")}）"
+        if ok {
+          fixed.push(words)
+        } else {
+          self.say("\{words}，但仍有不兼容的 DLL", bad=true)
+        }
+        next(i + 1)
+      } else {
+        self.busy.set("")
+        self.say(
+          match v {
+            String(s) => s
+            _ => "更新失败"
+          },
+          bad=true,
+        )
+        self.load_mods()
+      }
+    })
+  }
+  next(0)
+}
+
+///|
+/// 一键启动游戏: held by the check when client mods are not built for this SPT (SPT would stop the game with its
+/// Outdated Mods window), else started.
+pub fn Store::try_launch(self : Store) -> Unit {
+  if self.mods.untracked().iter().any(fn(m) { m.incompatible() }) {
+    self.gate_step.set(1)
+    self.gate_open.set(true)
+  } else {
+    self.launch()
+  }
+}
+
+///|
+/// Started though the check holds it, or once it is cleared: the gate closed first.
+pub fn Store::launch_past_gate(self : Store) -> Unit {
+  self.gate_open.set(false)
+  self.gate_step.set(1)
+  self.launch()
+}
+
+///|
 pub fn Store::snapshot(self : Store, note : String) -> Unit {
   self.run("snapshots.create", [self.inst_arg(), ("note", Json::string(note))], fn(v) {
     self.say("已备份存档（\{jarr(v, "files").length()} 个存档文件）")
@@ -722,6 +849,7 @@ pub fn Store::mods_shown(self : Store) -> Array[ModItem] {
       "on" => m.enabled
       "off" => !m.enabled
       "update" => m.update != ""
+      "bad" => m.incompatible()
       _ => true
     }
     by_filter &&

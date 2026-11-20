@@ -5,6 +5,8 @@
 
 pub mod api;
 pub mod archive;
+pub mod clientcheck;
+pub mod clr_meta;
 pub mod config;
 pub mod events;
 pub mod game;
