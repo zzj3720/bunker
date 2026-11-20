@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct PeVersion {
     /// VS_FIXEDFILEINFO's file version, `a.b.c.d`.
     pub file: String,
@@ -38,7 +38,12 @@ fn read_at(f: &mut File, off: u64, len: usize) -> Option<Vec<u8>> {
     Some(v)
 }
 
+/// A file's version, read once for each state of it (`cache`).
 pub fn read(path: &Path) -> Option<PeVersion> {
+    crate::cache::pe(path, read_uncached)
+}
+
+pub fn read_uncached(path: &Path) -> Option<PeVersion> {
     let mut f = File::open(path).ok()?;
     let dos = read_at(&mut f, 0, 64)?;
     if &dos[0..2] != b"MZ" {

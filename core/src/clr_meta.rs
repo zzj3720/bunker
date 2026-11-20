@@ -6,28 +6,28 @@
 
 use std::path::Path;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct AsmRef {
     pub name: String,
     /// `major.minor.build.revision`
     pub version: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Plugin {
     pub guid: String,
     pub name: String,
     pub version: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Dependency {
     pub guid: String,
     /// `[BepInDependency(guid, DependencyFlags.SoftDependency)]`: loads without it
     pub soft: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Meta {
     pub name: String,
     pub version: String,
@@ -43,8 +43,13 @@ fn u32_at(b: &[u8], o: usize) -> Option<u32> {
     b.get(o..o.checked_add(4)?).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
 }
 
-/// A .NET assembly's metadata from its file; None for a native library, or anything else.
+/// A .NET assembly's metadata from its file; None for a native library, or anything else. Read once for each state of
+/// the file (`cache`).
 pub fn read(path: &Path) -> Option<Meta> {
+    crate::cache::clr(path, read_uncached)
+}
+
+pub fn read_uncached(path: &Path) -> Option<Meta> {
     let len = std::fs::metadata(path).ok()?.len();
     if len > 256 << 20 {
         return None;

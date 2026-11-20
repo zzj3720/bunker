@@ -5,6 +5,7 @@
 
 pub mod api;
 pub mod archive;
+pub mod cache;
 pub mod clientcheck;
 pub mod clr_meta;
 pub mod config;

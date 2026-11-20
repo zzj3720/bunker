@@ -48,6 +48,7 @@ fn save_registry(r: &Registry) -> Res<()> {
 
 /// Where the user's own SPT installs are likely to be: each drive's `Games`, `SPT` folders (Windows), for the first run.
 fn guesses() -> Vec<PathBuf> {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut out = Vec::new();
     #[cfg(windows)]
     for d in b'C'..=b'H' {
@@ -115,12 +116,20 @@ pub fn dispatch(req: &Value) -> Res<Value> {
 
 /// A request with bytes beside it (`data`: a file's, for `mods.plan_bytes`).
 pub fn dispatch_data(req: &Value, data: Option<Vec<u8>>) -> Res<Value> {
+    let r = dispatch_op(req, data);
+    // (what was read anew kept for the next run)
+    crate::cache::save();
+    r
+}
+
+fn dispatch_op(req: &Value, data: Option<Vec<u8>>) -> Res<Value> {
     let op = arg(req, "op")?;
     match op {
         "init" => {
             let d = PathBuf::from(arg(req, "data_dir")?);
             std::fs::create_dir_all(&d).at("创建数据目录", &d)?;
             *data_dir().lock().unwrap() = Some(d.clone());
+            crate::cache::open(&d);
             let mut r = load_registry()?;
             if r.instances.is_empty() && req.get("guess").and_then(|g| g.as_bool()).unwrap_or(true) {
                 // (the newest SPT first: the one chosen)

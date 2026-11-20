@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Default)]
 pub struct Loc {
     /// `full` (Chinese for all its text), `partial`, `none` (has text in other languages but no Chinese), `na` (no text)
     pub status: String,
@@ -103,42 +103,58 @@ fn count_strings(v: &Value) -> usize {
 const LANGS: &[&str] = &["ch", "en", "ru", "fr", "ge", "de", "es", "es-mx", "it", "jp", "kr", "pl", "po", "sk", "cz", "hu", "tu", "ro"];
 
 /// Localization of a mod's files: `ch.json` files (as `db/CustomLocales/ch.json`), and inline `"ch": {…}` beside
-/// another language's key in its JSON.
+/// another language's key in its JSON. Counted once for each state of those files (`cache`).
 pub fn scan_loc(paths: &[PathBuf]) -> Loc {
-    let mut ch = 0;
-    let mut other_by: BTreeMap<String, usize> = BTreeMap::new();
+    let mut files = Vec::new();
     let mut seen = 0usize;
-    for p in paths {
+    'all: for p in paths {
         for f in files_of(p) {
             seen += 1;
             if seen > 20000 {
-                break;
+                break 'all;
             }
             let name = name_of(&f).to_ascii_lowercase();
-            let (stem, ext) = match name.rsplit_once('.') {
-                Some(x) => x,
-                None => continue,
-            };
-            if ext != "json" && ext != "jsonc" {
+            if !(name.ends_with(".json") || name.ends_with(".jsonc")) {
                 continue;
             }
-            let size = fs::metadata(&f).map(|m| m.len()).unwrap_or(0);
-            if LANGS.contains(&stem) {
-                let n = fs::read(&f).ok().and_then(|b| parse_jsonc(&b).ok()).map(|v| count_strings(&v)).unwrap_or(0);
-                if stem == "ch" {
-                    ch += n;
-                } else {
-                    *other_by.entry(stem.to_string()).or_default() += n;
-                }
-                continue;
+            if let Some(st) = crate::cache::stamp(&f) {
+                files.push((f, st));
             }
-            if size > 2 << 20 {
-                continue;
-            }
-            let Some(v) = fs::read(&f).ok().and_then(|b| parse_jsonc(&b).ok()) else { continue };
-            inline_locales(&v, &mut ch, &mut other_by, 0);
         }
     }
+    crate::cache::loc(paths, &files, || count_loc(&files))
+}
+
+fn count_loc(files: &[(PathBuf, crate::cache::Stamp)]) -> Loc {
+    let mut ch = 0;
+    let mut other_by: BTreeMap<String, usize> = BTreeMap::new();
+    for (f, st) in files {
+        let name = name_of(f).to_ascii_lowercase();
+        let Some((stem, _)) = name.rsplit_once('.') else { continue };
+        if LANGS.contains(&stem) {
+            let n = fs::read(f).ok().and_then(|b| parse_jsonc(&b).ok()).map(|v| count_strings(&v)).unwrap_or(0);
+            if stem == "ch" {
+                ch += n;
+            } else {
+                *other_by.entry(stem.to_string()).or_default() += n;
+            }
+            continue;
+        }
+        if st.size > 2 << 20 {
+            continue;
+        }
+        let Ok(b) = fs::read(f) else { continue };
+        // (inline text needs a `"ch"` key: a file without those four bytes has none, and is not parsed)
+        if !b.windows(4).any(|w| w == b"\"ch\"") {
+            continue;
+        }
+        let Ok(v) = parse_jsonc(&b) else { continue };
+        inline_locales(&v, &mut ch, &mut other_by, 0);
+    }
+    loc_of(ch, &other_by)
+}
+
+fn loc_of(ch: usize, other_by: &BTreeMap<String, usize>) -> Loc {
     let other = other_by.get("en").copied().unwrap_or_else(|| other_by.values().copied().max().unwrap_or(0));
     let mut langs: Vec<String> = other_by.keys().cloned().collect();
     if ch > 0 {
@@ -186,12 +202,17 @@ fn inline_locales(v: &Value, ch: &mut usize, other: &mut BTreeMap<String, usize>
 
 /// JSON with `//` and `/* */` comments and trailing commas (the `.jsonc` mods write), parsed.
 pub fn parse_jsonc(b: &[u8]) -> Result<Value, String> {
+    // (most files are plain JSON: parsed as they are; comments and trailing commas only when that fails)
+    if let Ok(v) = serde_json::from_slice(strip_bom(b)) {
+        return Ok(v);
+    }
     let text = String::from_utf8_lossy(strip_bom(b));
     let clean = strip_jsonc(&text);
     serde_json::from_str(&clean).map_err(|e| format!("第 {} 行第 {} 列：{e}", e.line(), e.column()))
 }
 
-/// Comments blanked (newlines kept, so errors keep their line numbers) and commas before `}`/`]` removed.
+/// Comments blanked (newlines kept, so errors keep their line numbers) and commas before `}`/`]` removed. One pass:
+/// what follows a comma is looked at past spaces and comments without copying anything.
 pub fn strip_jsonc(s: &str) -> String {
     let c: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(s.len());
@@ -228,28 +249,13 @@ pub fn strip_jsonc(s: &str) -> String {
                 out.push(if c[i] == '\n' { '\n' } else { ' ' });
                 i += 1;
             }
-            out.push_str("  ");
-            i += 2;
+            if i < c.len() {
+                out.push_str("  ");
+                i += 2;
+            }
         } else if ch == ',' {
-            let mut j = i + 1;
-            while j < c.len() && c[j].is_whitespace() {
-                j += 1;
-            }
-            // (a comment between the comma and the bracket is blanked later; look past it too)
-            let rest: String = c[j..c.len().min(j + 2)].iter().collect();
-            if j < c.len() && (c[j] == '}' || c[j] == ']') {
-                out.push(' ');
-            } else if rest == "//" || rest == "/*" {
-                let tail: String = c[j..].iter().collect();
-                let after = strip_jsonc(&tail);
-                if after.trim_start().starts_with('}') || after.trim_start().starts_with(']') {
-                    out.push(' ');
-                } else {
-                    out.push(',');
-                }
-            } else {
-                out.push(',');
-            }
+            let next = next_significant(&c, i + 1);
+            out.push(if matches!(next, Some('}') | Some(']')) { ' ' } else { ',' });
             i += 1;
         } else {
             out.push(ch);
@@ -257,6 +263,28 @@ pub fn strip_jsonc(s: &str) -> String {
         }
     }
     out
+}
+
+/// The first character from `j` that is not a space or in a comment.
+fn next_significant(c: &[char], mut j: usize) -> Option<char> {
+    while j < c.len() {
+        if c[j].is_whitespace() {
+            j += 1;
+        } else if c[j] == '/' && j + 1 < c.len() && c[j + 1] == '/' {
+            while j < c.len() && c[j] != '\n' {
+                j += 1;
+            }
+        } else if c[j] == '/' && j + 1 < c.len() && c[j + 1] == '*' {
+            j += 2;
+            while j < c.len() && !(c[j] == '*' && j + 1 < c.len() && c[j + 1] == '/') {
+                j += 1;
+            }
+            j += 2;
+        } else {
+            return Some(c[j]);
+        }
+    }
+    None
 }
 
 fn dll_version(p: &Path) -> String {
@@ -665,6 +693,162 @@ mod tests {
         assert_eq!(l("Inline").status, "full");
         assert_eq!(l("Inline").ch, 1);
         assert_eq!(l("Logic").status, "na");
+        let _ = fs::remove_dir_all(&r);
+    }
+
+    /// What `strip_jsonc` did before (each comma before a comment copied the rest and stripped it again): the reference
+    /// its one pass must agree with.
+    fn strip_jsonc_before(s: &str) -> String {
+        let c: Vec<char> = s.chars().collect();
+        let mut out = String::new();
+        let mut i = 0;
+        let mut in_str = false;
+        while i < c.len() {
+            let ch = c[i];
+            if in_str {
+                out.push(ch);
+                if ch == '\\' && i + 1 < c.len() {
+                    out.push(c[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                if ch == '"' {
+                    in_str = false;
+                }
+                i += 1;
+                continue;
+            }
+            if ch == '"' {
+                in_str = true;
+                out.push(ch);
+                i += 1;
+            } else if ch == '/' && i + 1 < c.len() && c[i + 1] == '/' {
+                while i < c.len() && c[i] != '\n' {
+                    out.push(' ');
+                    i += 1;
+                }
+            } else if ch == '/' && i + 1 < c.len() && c[i + 1] == '*' {
+                out.push_str("  ");
+                i += 2;
+                while i < c.len() && !(c[i] == '*' && i + 1 < c.len() && c[i + 1] == '/') {
+                    out.push(if c[i] == '\n' { '\n' } else { ' ' });
+                    i += 1;
+                }
+                out.push_str("  ");
+                i += 2;
+            } else if ch == ',' {
+                let mut j = i + 1;
+                while j < c.len() && c[j].is_whitespace() {
+                    j += 1;
+                }
+                let rest: String = c[j..c.len().min(j + 2)].iter().collect();
+                if j < c.len() && (c[j] == '}' || c[j] == ']') {
+                    out.push(' ');
+                } else if rest == "//" || rest == "/*" {
+                    let tail: String = c[j..].iter().collect();
+                    let after = strip_jsonc_before(&tail);
+                    out.push(if after.trim_start().starts_with('}') || after.trim_start().starts_with(']') { ' ' } else { ',' });
+                } else {
+                    out.push(',');
+                }
+                i += 1;
+            } else {
+                out.push(ch);
+                i += 1;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn strip_jsonc_agrees_with_before_and_is_linear() {
+        let cases = [
+            "{\n \"a\": 1, // one\n \"b\": [1, 2, /* two */ ],\n \"c\": {\"d\": 3, // last\n }, /* x */ \n}",
+            "[1, // a\n /* b */ 2, // c\n]",
+            "{\"s\": \"a, // not\", \"t\": \"\\\" ,}\" , }",
+        ];
+        for c in cases {
+            assert_eq!(strip_jsonc(c), strip_jsonc_before(c), "{c}");
+        }
+        assert_eq!(parse_jsonc(cases[0].as_bytes()).unwrap()["c"]["d"], 3);
+        // (an unclosed comment: blanked to the end, as before less the two spaces it added past the end)
+        assert!(parse_jsonc(b"{\"a\": 1 /* unclosed").is_err());
+        assert_eq!(strip_jsonc("1 /* x"), "1     ");
+        // a config of many entries, each with a comment after its comma: the old way copied and stripped the rest at
+        // each, again within each copy (exponential); 40 already took longer than this whole test may
+        let mut big = String::from("{\n");
+        for i in 0..20000 {
+            big.push_str(&format!("  \"key{i}\": {i}, // what key{i} does\n"));
+        }
+        big.push_str("  \"last\": true, // the end\n}\n");
+        let t = std::time::Instant::now();
+        let v = parse_jsonc(big.as_bytes()).unwrap();
+        let ms = t.elapsed().as_millis();
+        assert_eq!(v["key19999"], 19999);
+        assert_eq!(v["last"], true);
+        assert!(ms < 1500, "20000 commented entries took {ms} ms");
+        let small: String = big.lines().take(12).chain(["}"]).collect::<Vec<_>>().join("\n");
+        assert_eq!(strip_jsonc(&small), strip_jsonc_before(&small));
+    }
+
+    /// `scan_loc` as it was: every JSON file parsed, no `"ch"` filter, no cache.
+    fn scan_loc_before(paths: &[PathBuf]) -> Loc {
+        let mut ch = 0;
+        let mut other_by: BTreeMap<String, usize> = BTreeMap::new();
+        for p in paths {
+            for f in files_of(p) {
+                let name = name_of(&f).to_ascii_lowercase();
+                let Some((stem, ext)) = name.rsplit_once('.') else { continue };
+                if ext != "json" && ext != "jsonc" {
+                    continue;
+                }
+                let size = fs::metadata(&f).map(|m| m.len()).unwrap_or(0);
+                if LANGS.contains(&stem) {
+                    let n = fs::read(&f).ok().and_then(|b| parse_jsonc(&b).ok()).map(|v| count_strings(&v)).unwrap_or(0);
+                    if stem == "ch" {
+                        ch += n;
+                    } else {
+                        *other_by.entry(stem.to_string()).or_default() += n;
+                    }
+                    continue;
+                }
+                if size > 2 << 20 {
+                    continue;
+                }
+                let Some(v) = fs::read(&f).ok().and_then(|b| parse_jsonc(&b).ok()) else { continue };
+                inline_locales(&v, &mut ch, &mut other_by, 0);
+            }
+        }
+        loc_of(ch, &other_by)
+    }
+
+    #[test]
+    fn scan_loc_filter_agrees_and_the_cache_follows_changes() {
+        let r = fake_instance("locfast", "SPT_Runtime");
+        let m = r.join("SPT_Runtime/user/mods/Mixed");
+        touch(&m.join("quests.jsonc"), b"{ // q\n \"q1\": {\"name\": {\"en\": \"Go\", \"ch\": \"\xe5\x8e\xbb\"}, }, }");
+        touch(&m.join("items.json"), br#"{"i": {"name": {"en": "Gun", "ru": "Pushka"}}}"#);
+        touch(&m.join("values.json"), br#"{"lang": "ch", "x": ["ch", "en"]}"#);
+        touch(&m.join("only_ch.json"), br#"{"t": {"ch": "a"}}"#);
+        touch(&m.join("locales/en.json"), br#"{"a": "A", "b": "B"}"#);
+        touch(&m.join("broken.json"), b"{\"ch\": ");
+        let want = scan_loc_before(&[m.clone()]);
+        assert_eq!(scan_loc(&[m.clone()]), want);
+        assert_eq!(want.ch, 1);
+        // (and again, from the cache)
+        assert_eq!(scan_loc(&[m.clone()]), want);
+        // a file added: counted anew
+        touch(&m.join("locales/ch.json"), br#"{"a": "jia", "b": "yi"}"#);
+        let now = scan_loc(&[m.clone()]);
+        assert_eq!(now, scan_loc_before(&[m.clone()]));
+        assert_eq!(now.ch, 3);
+        // changed (another size), and removed
+        touch(&m.join("locales/ch.json"), br#"{"a": "jia"}"#);
+        assert_eq!(scan_loc(&[m.clone()]).ch, 2);
+        fs::remove_file(m.join("locales/ch.json")).unwrap();
+        assert_eq!(scan_loc(&[m.clone()]), want);
+        // turned off: its files moved, nothing of it left to count at its old place
+        assert_eq!(scan_loc(&[r.join("SPT_Runtime/user/mods/Gone")]).status, "na");
         let _ = fs::remove_dir_all(&r);
     }
 
