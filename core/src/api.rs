@@ -110,6 +110,11 @@ fn to_json<T: Serialize>(v: T) -> Res<Value> {
 }
 
 pub fn dispatch(req: &Value) -> Res<Value> {
+    dispatch_data(req, None)
+}
+
+/// A request with bytes beside it (`data`: a file's, for `mods.plan_bytes`).
+pub fn dispatch_data(req: &Value, data: Option<Vec<u8>>) -> Res<Value> {
     let op = arg(req, "op")?;
     match op {
         "init" => {
@@ -143,6 +148,16 @@ pub fn dispatch(req: &Value) -> Res<Value> {
             Ok(json!({"instances": list, "current": r.current}))
         }
         "instances.probe" => to_json(instance::detect(Path::new(arg(req, "path")?))),
+        "instances.scan" => {
+            // SPT installs found where they usually are, not added yet (the add-instance step's suggestions)
+            let r = load_registry()?;
+            let found: Vec<Instance> = guesses()
+                .into_iter()
+                .map(|g| instance::detect(&g))
+                .filter(|i| !r.instances.iter().any(|e| Path::new(&e.path) == Path::new(&i.root)))
+                .collect();
+            to_json(found)
+        }
         "instances.add" => {
             let p = arg(req, "path")?;
             let i = instance::detect(Path::new(p));
@@ -244,7 +259,10 @@ pub fn dispatch(req: &Value) -> Res<Value> {
             // a file let go on the window: its bytes (base64) and name
             let i = inst_of(req)?;
             let name = arg(req, "name")?;
-            let data = b64_decode(arg(req, "data")?)?;
+            let data = match data {
+                Some(d) if !d.is_empty() => d,
+                _ => b64_decode(arg(req, "data")?)?,
+            };
             let dir = install::staging(&i).join(format!("drop-{}", stamp_id(now_ms())));
             let safe: String = name.chars().map(|c| if c.is_alphanumeric() || "-_. ".contains(c) { c } else { '_' }).collect();
             let p = dir.join(safe);

@@ -1,7 +1,11 @@
 import {
   "mbui/host",
+  "mbui/hostapi",
   "mbui/ui",
   "mbui/view",
+  "bunker/corelink",
+  "bunker/model",
+  "bunker/shell",
 }
 
 options(

@@ -52,11 +52,26 @@ pub extern "C" fn bunker_call(id: i64, json: *const u8, len: usize) {
     });
 }
 
+/// As `bunker_call`, with bytes beside the request (a file let go on the window: `mods.plan_bytes`).
+#[no_mangle]
+pub extern "C" fn bunker_call_data(id: i64, json: *const u8, len: usize, data: *const u8, dlen: usize) {
+    let bytes = if json.is_null() || len == 0 { Vec::new() } else { unsafe { std::slice::from_raw_parts(json, len) }.to_vec() };
+    let data = if data.is_null() || dlen == 0 { Vec::new() } else { unsafe { std::slice::from_raw_parts(data, dlen) }.to_vec() };
+    std::thread::spawn(move || {
+        let answer = answer_with(id, &bytes, Some(data));
+        post(&answer.to_string());
+    });
+}
+
 /// A request's answer (what `bunker_call` posts), a panic included as an error.
 pub fn answer(id: i64, bytes: &[u8]) -> Value {
-    let r = std::panic::catch_unwind(|| {
+    answer_with(id, bytes, None)
+}
+
+pub fn answer_with(id: i64, bytes: &[u8], data: Option<Vec<u8>>) -> Value {
+    let r = std::panic::catch_unwind(move || {
         let req: Value = serde_json::from_slice(bytes).map_err(|e| format!("请求不是 JSON：{e}"))?;
-        api::dispatch(&req)
+        api::dispatch_data(&req, data)
     });
     match r {
         Ok(Ok(data)) => json!({"id": id, "ok": true, "data": data}),

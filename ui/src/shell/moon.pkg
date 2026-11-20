@@ -1,0 +1,12 @@
+import {
+  "mbui/hostapi",
+  "mbui/headless",
+  "mbui/signals",
+  "mbui/ui",
+  "mbui/view",
+  "bunker/model",
+}
+
+import {
+  "moonbitlang/core/json",
+} for "test"
