@@ -34,5 +34,5 @@ fn main {
       )
     }
   })
-  @ui.run_tree("Bunker", fn(root) { @shell.app(root, store) })
+  @ui.run_tree("Bunker", fn(root) { @shell.app(root, store) }, theme=fn() { @ui.Theme::dark() })
 }

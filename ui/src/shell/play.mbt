@@ -211,7 +211,7 @@ fn check_row(parent : @view.View, title : String, sub : () -> String, right : (@
     r.box(fn(t) {
       t.grow(Is(1.0)).shrink(Is(1.0)).gap(Is(3.0)) |> ignore
       text(t, title, size=13.0, weight=700) |> ignore
-      text_by(t, sub, size=11.5, ink=c_text2) |> ignore
+      text_by(t, sub, size=11.5, ink=c_text2, wrap=true) |> ignore
     })
     |> ignore
     right(r)

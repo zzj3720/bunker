@@ -24,13 +24,13 @@ pub fn app(root : @view.View, s : @model.Store) -> Unit {
   })
   title_bar(root)
   root.box(fn(body) {
-    body.row(Is(true)).grow(Is(1.0)) |> ignore
+    body.row(Is(true)).grow(Is(1.0)).ground(Is(c_app)) |> ignore
     sidebar(body, s, inst_pop, inst_anchor)
     body.box(fn(main) {
-      main.grow(Is(1.0)) |> ignore
+      main.grow(Is(1.0)).basis(Is(Some(0.0))).min_width(Is(Some(0.0))).ground(Is(c_app)) |> ignore
       action_bar(main, s, role_pop, role_anchor)
       main.box(fn(content) {
-        content.grow(Is(1.0)) |> ignore
+        content.grow(Is(1.0)).min_width(Is(Some(0.0))).clips(Is(true)) |> ignore
         content.pick(fn() { s.page.get() }, fn(v, page) {
           v.grow(Is(1.0)) |> ignore
           match page {

@@ -123,8 +123,10 @@ pub fn dispatch_data(req: &Value, data: Option<Vec<u8>>) -> Res<Value> {
             *data_dir().lock().unwrap() = Some(d.clone());
             let mut r = load_registry()?;
             if r.instances.is_empty() && req.get("guess").and_then(|g| g.as_bool()).unwrap_or(true) {
-                for g in guesses() {
-                    let i = instance::detect(&g);
+                // (the newest SPT first: the one chosen)
+                let mut found: Vec<Instance> = guesses().iter().map(|g| instance::detect(g)).collect();
+                found.sort_by(|a, b| version_cmp(&b.spt_version, &a.spt_version));
+                for i in found {
                     r.instances.push(Entry { path: i.root.clone(), name: default_name(&i), added_at: now_ms() });
                 }
                 if let Some(first) = r.instances.first() {

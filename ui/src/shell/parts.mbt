@@ -84,14 +84,21 @@ let c_ink_on_accent : Int64 = 0x111315FFL
 let c_tag_muted : Int64 = 0x262B31FFL
 
 ///|
-fn wl(size : Double, weight? : Int = 400) -> @view.WordsLook {
-  { ..@view.words_plain, size, weight }
+fn wl(size : Double, weight? : Int = 400, wrap? : Bool = false) -> @view.WordsLook {
+  { ..@view.words_plain, size, weight, wrap }
 }
 
 ///|
 /// Words in `parent`: `size`, `weight`, `ink`.
-fn text(parent : @view.View, s : String, size? : Double = 13.0, weight? : Int = 400, ink? : Int64 = c_text) -> @view.View {
-  parent.box(fn(b) { b.words(Is(s), ink~, look=wl(size, weight~)) |> ignore })
+fn text(
+  parent : @view.View,
+  s : String,
+  size? : Double = 13.0,
+  weight? : Int = 400,
+  ink? : Int64 = c_text,
+  wrap? : Bool = false,
+) -> @view.View {
+  parent.box(fn(b) { b.words(Is(s), ink~, look=wl(size, weight~, wrap~)) |> ignore })
 }
 
 ///|
@@ -103,9 +110,10 @@ fn text_by(
   weight? : Int = 400,
   ink? : Int64 = c_text,
   ink_by? : () -> Int64,
+  wrap? : Bool = false,
 ) -> @view.View {
   parent.box(fn(b) {
-    b.words(By(s), ink~, look=wl(size, weight~)) |> ignore
+    b.words(By(s), ink~, look=wl(size, weight~, wrap~)) |> ignore
     match ink_by {
       Some(f) => b.ink(By(f)) |> ignore
       None => ()
@@ -265,12 +273,12 @@ fn tag(parent : @view.View, s : String, t : TagTone) -> @view.View {
 ///|
 /// A tag whose words and tone follow what they say.
 fn tag_by(parent : @view.View, s : () -> String, t : () -> TagTone) -> @view.View {
+  // (empty: nothing drawn and no room taken)
   parent.box(fn(b) {
     b
-    .ground(By(fn() { tag_colors(t()).0 }))
+    .ground(By(fn() { if s() == "" { 0L } else { tag_colors(t()).0 } }))
     .radius(Is(5.0))
-    .padding(Is((7.0, 2.0, 7.0, 2.0)))
-    .hides(By(fn() { s() == "" }))
+    .padding(By(fn() { if s() == "" { (0.0, 0.0, 0.0, 0.0) } else { (7.0, 2.0, 7.0, 2.0) } }))
     |> ignore
     b.words(By(s), look=wl(11.0, weight=600)).ink(By(fn() { tag_colors(t()).1 })) |> ignore
   })
@@ -327,7 +335,7 @@ fn line_field(
     |> ignore
     match width {
       Some(w) => b.width(Is(Some(w))) |> ignore
-      None => b.grow(Is(1.0)) |> ignore
+      None => b.grow(Is(1.0)).basis(Is(Some(0.0))).min_width(Is(Some(0.0))) |> ignore
     }
     @ui.field(
       b,

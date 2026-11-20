@@ -1,0 +1,73 @@
+# Bunker's CI on GitHub's free runners: the core's tests (Windows, where it runs), the UI's type check and Tester
+# tests (Linux), and the Windows program built and kept as an artifact.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  core:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: core
+    steps:
+      - run: git config --global core.autocrlf false
+        working-directory: ${{ github.workspace }}
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: core-${{ runner.os }}-${{ hashFiles('core/Cargo.lock', 'core/Cargo.toml') }}
+          restore-keys: core-${{ runner.os }}-
+      - name: cargo test
+        run: cargo test --no-fail-fast
+
+  ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: moon check + Tester tests
+        run: T=1 sh scripts/check-ui.sh
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - name: MoonBit
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            core/target
+            vendor/monoid/libs/mbui/out/webview2
+          key: win-${{ hashFiles('core/Cargo.lock', 'mbui.pin') }}
+          restore-keys: win-
+      - name: Build Bunker.exe
+        run: bash scripts/build-win.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bunker-win-x64
+          path: out/win/Bunker.exe

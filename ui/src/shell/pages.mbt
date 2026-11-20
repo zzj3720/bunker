@@ -174,6 +174,10 @@ fn config_page(v : @view.View, s : @model.Store) -> Unit {
   v.box(fn(ed) {
     ed
     .grow(Is(1.0))
+    .basis(Is(Some(0.0)))
+    .shrink(Is(1.0))
+    .min_width(Is(Some(0.0)))
+    .clips(Is(true))
     .ground(Is(c_panel))
     .edge(Is((1.0, c_border)))
     .radius(Is(10.0))
@@ -202,6 +206,8 @@ fn config_page(v : @view.View, s : @model.Store) -> Unit {
     ed.box(fn(fr) {
       fr
       .grow(Is(1.0))
+      .min_width(Is(Some(0.0)))
+      .clips(Is(true))
       .ground(Is(c_console))
       .edge(Is((1.0, c_border)))
       .radius(Is(6.0))
