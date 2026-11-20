@@ -1,6 +1,6 @@
 # Bunker
 
-开源的 SPT（Single Player Tarkov）桌面启动器与 Mod 管理器。界面用 [mbui](https://github.com/AFK-surf/monoid/tree/main/libs/mbui)（MoonBit 写的 GPU 自绘 UI，Windows 上是 Direct3D 11 原生宿主），本地逻辑在 Rust 写的 core 里，两者编译进同一个 `Bunker.exe`，没有 Electron、没有 Web 运行时、没有后台服务。
+开源的 SPT（Single Player Tarkov）桌面启动器与 Mod 管理器。界面用 [mbui](https://github.com/AFK-surf/monoid/tree/main/libs/mbui)（MoonBit 写的 GPU 自绘 UI，Windows 上是 Direct3D 11 原生宿主）和它上面的组件库 [`libs/sf-ui`](https://github.com/AFK-surf/monoid/tree/main/libs/sf-ui)（`@sf`，暗色主题 + 暖砂金色调），本地逻辑在 Rust 写的 core 里，两者编译进同一个 `Bunker.exe`，没有 Electron、没有 Web 运行时、没有后台服务。
 
 An open-source desktop launcher and mod manager for SPT (Single Player Tarkov): a native mbui window (MoonBit, drawn on the GPU) with a Rust core linked into the same executable.
 
@@ -31,8 +31,8 @@ bunker/
 │   ├── src/app      main：窗口、core 消息通道
 │   ├── src/corelink C 桩：把 core 的应答经 mb_post 送到 "core" 通道
 │   ├── src/model    状态（signals）和对 core 的请求
-│   └── src/shell    界面：标题栏、侧栏、四个视图、三个弹层（同一弹层内逐步切换）
-├── scripts/         fetch-mbui.sh（按 mbui.pin 稀疏拉取 libs/mbui）、build-win.sh、check-ui.sh
+│   └── src/shell    界面：标题栏、侧栏、四个视图、三个弹层（同一弹层内逐步切换）；控件用 @sf
+├── scripts/         fetch-mbui.sh（按 mbui.pin 拉取 libs/mbui、libs/sf-ui 到 vendor/）、build-win.sh、check-ui.sh
 └── mbui.pin         固定 AFK-surf/monoid 的提交
 ```
 
@@ -46,7 +46,7 @@ core 在自己的线程上处理每个请求，应答和事件（服务端日志
 bash scripts/build-win.sh        # → out/win/Bunker.exe
 ```
 
-脚本会按 `mbui.pin` 稀疏拉取 `libs/mbui` 到 `vendor/monoid`、导入 MSVC 环境、编 `core/`（静态 CRT），再用 mbui 自带的 `scripts/win.sh` 编外部模块 `ui/`。
+脚本会按 `mbui.pin` 拉取 `libs/mbui` 和 `libs/sf-ui` 到 `vendor/mbui`、`vendor/sf-ui`、导入 MSVC 环境、编 `core/`（静态 CRT），再用 mbui 自带的 `scripts/win.sh` 编外部模块 `ui/`。
 
 ## 测试
 

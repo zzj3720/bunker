@@ -18,7 +18,7 @@ if [ -f core/Cargo.toml ]; then
   (cd core && cargo build --release --lib)
   export LIB="$(cygpath -w "$R/core/target/release");$LIB"
 fi
-MBUI=vendor/monoid/libs/mbui
+MBUI=vendor/mbui
 # WebView2's SDK where mbui's win.sh looks for it (its own unpacking needs a Python, which a Windows machine may lack)
 WV2_VERSION=$(sed -n 's/^WV2_VERSION=//p' "$MBUI/scripts/win.sh")
 WV2="$MBUI/out/webview2/$WV2_VERSION"

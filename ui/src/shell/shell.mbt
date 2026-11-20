@@ -5,6 +5,10 @@
 
 ///|
 pub fn app(root : @view.View, s : @model.Store) -> Unit {
+  // (@sf's dark theme, its colour theme the sand-gold's hue (OKLCH 83°, #C8A258's): what its controls are drawn in)
+  @sf.set_dark(Some(true))
+  @sf.set_accent("custom:83")
+  @ui.set_tree_theme(@sf.ui_theme)
   root.ground(Is(c_app)).grow(Is(1.0)) |> ignore
   let inst_anchor : Ref[@view.View?] = Ref(None)
   let role_anchor : Ref[@view.View?] = Ref(None)
@@ -36,7 +40,7 @@ pub fn app(root : @view.View, s : @model.Store) -> Unit {
           v.grow(Is(1.0)).basis(Is(Some(0.0))).min_height(Is(Some(0.0))).min_width(Is(Some(0.0))) |> ignore
           match page {
             Play => play_page(v, s)
-            Mods => mods_page(v, s, install_pop, install_anchor)
+            Mods => mods_page(v, s, install_anchor)
             Snapshots => snapshots_page(v, s)
             Config => config_page(v, s)
           }
@@ -91,14 +95,8 @@ fn popover_panel(p : @view.View, anchor : Ref[@view.View?], w : Double, along : 
     Some(a) => p.beside(a.id(), side=Bottom, along~, offset=8.0, padding=8.0) |> ignore
     None => ()
   }
-  p
-  .width(Is(Some(w)))
-  .ground(Is(c_panel))
-  .edge(Is((1.0, c_border_strong)))
-  .radius(Is(14.0))
-  .shadow(Is((44.0, 18.0, 0x00000094L)))
-  .clips(Is(true))
-  |> ignore
+  // (@sf's small panel: its ground, edge, corners, padding and shadow)
+  @sf.small_panel_node(p).width(Is(Some(w))) |> ignore
 }
 
 ///|
@@ -235,28 +233,22 @@ fn sidebar(body : @view.View, s : @model.Store, pop : @headless.Popover, anchor 
 }
 
 ///|
+/// A view's item in the sidebar: @sf's sidebar row, its mark, its name and a pill at its end, chosen while its view shows.
 fn nav_item(nav : @view.View, s : @model.Store, page : @model.Page, label : String, pill : () -> String) -> Unit {
-  let active = fn() { s.page.get() == page }
-  @headless.button(nav, fn() { label }, fn(_) { s.page.set(page) }, fn(v, b) {
-    v
-    .row(Is(true))
-    .lines_up(Is(Some(Middle)))
-    .padding(Is((11.0, 9.0, 11.0, 9.0)))
-    .radius(Is(6.0))
-    .cursor(Is(Some(Hand)))
-    .ground(By(fn() { if active() { c_accent_soft } else if b.hovered() { c_hover } else { 0L } }))
-    |> ignore
-    v.box(fn(t) {
-      t.grow(Is(1.0)) |> ignore
-      t
-      .words(Is(label), look=wl(13.0, weight=500))
-      .ink(By(fn() { if active() { c_accent } else if b.hovered() { c_text } else { c_text2 } }))
-      |> ignore
-    })
-    |> ignore
-    pill_by(v, pill, active) |> ignore
-  })
-  |> ignore
+  let (mark, name) = match label.split("  ").collect() {
+    [m, n] => (m.to_owned(), n.to_owned())
+    _ => ("", label)
+  }
+  @sf.nav_item_node(
+    nav,
+    Side,
+    fn() { s.page.get() == page },
+    fn() { label },
+    fn(_) { s.page.set(page) },
+    fn(m) { centred(m, fn(c) { c.box(fn(w) { w.words(Is(mark), look=wl(13.0)).ink(By(fn() { c_text2 })) |> ignore }) |> ignore }) },
+    fn(t) { @sf.nav_title_node(t, fn() { name }) },
+    end=fn(e) { pill_by(e, pill, fn() { s.page.get() == page }) },
+  )
 }
 
 ///|
@@ -270,7 +262,7 @@ fn server_card(sb : @view.View, s : @model.Store) -> Unit {
     .gap(Is(6.0))
     |> ignore
     row(c, 6.0, fn(r) {
-      dot(r, fn() { state_color(s.server.get().state) }) |> ignore
+      dot(r, fn() { s.server.get().state })
       text(r, "SPT.Server", size=12.0).grow(Is(1.0)) |> ignore
       text_by(r, fn() { "127.0.0.1:\{s.server.get().port}" }, size=12.0, weight=600, ink_by=fn() {
         state_color(s.server.get().state)
@@ -663,49 +655,26 @@ fn role_popover(p : @view.View, s : @model.Store) -> Unit {
 }
 
 ///|
+/// What was done or went wrong: @sf's toasts at the window's foot (one at a time: the latest notice).
 fn notice(root : @view.View, s : @model.Store) -> Unit {
-  root.show(fn() { s.notice.get() is Some(_) }, fn(layer) {
-    layer.over(Is(true), edges=(None, None, Some(24.0), Some(24.0))) |> ignore
-    layer.box(fn(n) {
-      n
-      .row(Is(true))
-      .lines_up(Is(Some(Middle)))
-      .gap(Is(10.0))
-      .max_width(Is(Some(520.0)))
-      .padding(Is((14.0, 10.0, 10.0, 10.0)))
-      .radius(Is(8.0))
-      .ground(Is(c_elevated))
-      .edge(By(fn() {
-        (
-          1.0,
-          match s.notice.get() {
-            Some(x) if x.bad => c_red
-            _ => c_border_strong
-          },
-        )
-      }))
-      .shadow(Is((24.0, 8.0, 0x00000080L)))
-      |> ignore
-      dot(n, fn() {
-        match s.notice.get() {
-          Some(x) if x.bad => c_red
-          _ => c_green
-        }
-      })
-      |> ignore
-      n.box(fn(t) {
-        t.grow(Is(1.0)).shrink(Is(1.0)) |> ignore
-        t.words(By(fn() {
-          match s.notice.get() {
-            Some(x) => x.text
-            None => ""
-          }
-        }), ink=c_text, look={ ..wl(12.5), wrap: true })
-        |> ignore
-      })
-      |> ignore
-      button(n, "知道了", fn() { s.notice.set(None) }, tone=Ghost, small=true) |> ignore
-    })
-    |> ignore
-  })
+  @sf.toaster_node(
+    root,
+    fn() {
+      match s.notice.get() {
+        Some(n) => [@sf.toast("n\{n.n}", if n.bad { "⚠ \{n.text}" } else { n.text })]
+        None => []
+      }
+    },
+    fn(t) { if t.title.has_prefix("⚠") { 8000.0 } else { 4000.0 } },
+    fn() { 24.0 },
+    fn(_) {  },
+    fn(id) {
+      match s.notice.untracked() {
+        Some(n) if "n\{n.n}" == id => s.notice.set(None)
+        _ => ()
+      }
+    },
+    w=560.0,
+  )
+  |> ignore
 }

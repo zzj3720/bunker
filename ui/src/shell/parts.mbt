@@ -1,6 +1,7 @@
-// Bunker's looks: the confirmed dark, industrial design (charcoal grounds, warm sand-gold for the main action, green
-// and amber for states), written over mbui's headless controls (@headless.button, toggle, popover, text fields) as
-// mbui's three layers have it: behaviour theirs, all that is seen here.
+// Bunker's looks: the dark tactical design (charcoal grounds, warm sand-gold, green and amber for states). Its controls
+// are still.fail's component library's (`@sf`, AFK-surf/monoid's libs/sf-ui, over mbui's headless components): its
+// buttons, switches, fields, pills, segmented choices, state dots, sidebar items, panels and toasts, in its dark theme
+// with a sand-gold colour theme of its own (shell.mbt sets them). What is here is the layout's: words, rows, cards.
 
 ///|
 pub let c_app : Int64 = 0x111315FFL
@@ -81,9 +82,6 @@ let c_console_text : Int64 = 0xC8D1DCFFL
 let c_ink_on_accent : Int64 = 0x111315FFL
 
 ///|
-let c_tag_muted : Int64 = 0x262B31FFL
-
-///|
 fn wl(size : Double, weight? : Int = 400, wrap? : Bool = false) -> @view.WordsLook {
   { ..@view.words_plain, size, weight, wrap }
 }
@@ -158,7 +156,7 @@ pub(all) enum Tone {
 }
 
 ///|
-/// A button of the design's: `Primary` sand-gold, `Plain` raised, `Ghost` bare, `Danger` red words.
+/// A button: @sf's (a pill 36 high in still.fail's look), in its tone.
 fn button(
   parent : @view.View,
   label : String,
@@ -169,72 +167,37 @@ fn button(
   label_by? : () -> String,
   grows? : Bool = false,
 ) -> @view.View {
+  ignore(small)
   let words = match label_by {
     Some(f) => f
     None => fn() { label }
   }
-  @headless.button(parent, words, fn(_) { press() }, disabled~, fn(v, b) {
-    let (g, lit, ink, edge) = match tone {
-      Primary => (c_accent, c_accent_hover, c_ink_on_accent, c_accent)
-      Plain => (c_elevated, c_hover, c_text, c_border_strong)
-      Ghost => (0L, c_hover, c_text2, 0L)
-      Danger => (c_elevated, c_red_soft, c_red, c_border_strong)
-    }
-    let h = if small { 28.0 } else { 36.0 }
-    let px = if small { 10.0 } else if tone == Primary { 18.0 } else { 14.0 }
-    v
-    .row(Is(true))
-    .lines_up(Is(Some(Middle)))
-    .height(Is(Some(h)))
-    .padding(Is((px, 0.0, px, 0.0)))
-    .radius(Is(6.0))
-    .ground(By(fn() { if !b.disabled() && (b.hovered() || b.pressed()) { lit } else { g } }))
-    .edge(Is((if edge == 0L { 0.0 } else { 1.0 }, edge)))
-    .alpha(By(fn() { if b.disabled() { 0.45 } else { 1.0 } }))
-    .cursor(Is(Some(Hand)))
-    |> ignore
-    if grows {
-      v.grow(Is(1.0)) |> ignore
-    }
-    v.box(fn(t) { t.words(By(words), ink~, look=wl(if small { 12.0 } else { 13.0 }, weight=600)) |> ignore }) |> ignore
-  })
+  let b = @sf.button_node(parent, words, press, tone=match tone {
+    Primary => Primary
+    Plain => Plain
+    Ghost => Ghost
+    Danger => Danger
+  }, disabled~)
+  if grows {
+    b.grow(Is(1.0)) |> ignore
+  }
+  b
 }
 
 ///|
-/// A switch of the design's: green while on.
+/// A switch: @sf's.
 fn switch(
   parent : @view.View,
   label : String,
   on : () -> Bool,
   turn : (Bool) -> Unit,
   label_by? : () -> String,
-) -> @view.View {
+) -> Unit {
   let words = match label_by {
     Some(f) => f
     None => fn() { label }
   }
-  @headless.toggle(parent, Switch, words, on, turn, fn(v, t) {
-    v
-    .width(Is(Some(40.0)))
-    .height(Is(Some(22.0)))
-    .radius(Is(11.0))
-    .ground(By(fn() { if t.on() { c_green } else { 0x3A4048FFL } }))
-    .cursor(Is(Some(Hand)))
-    .padding(Is((2.0, 2.0, 2.0, 2.0)))
-    .row(Is(true))
-    |> ignore
-    v.box(fn(k) { k.grow(By(fn() { if t.on() { 1.0 } else { 0.0 } })) |> ignore }) |> ignore
-    v.box(fn(k) {
-      k
-      .width(Is(Some(18.0)))
-      .height(Is(Some(18.0)))
-      .radius(Is(9.0))
-      .ground(Is(0xFFFFFFFFL))
-      .shadow(Is((4.0, 1.0, 0x00000066L)))
-      |> ignore
-    })
-    |> ignore
-  })
+  @sf.switch_node(parent, on, turn, words)
 }
 
 ///|
@@ -249,14 +212,14 @@ pub(all) enum TagTone {
 }
 
 ///|
-fn tag_colors(t : TagTone) -> (Int64, Int64) {
+fn pill_tone(t : TagTone) -> @sf.PillTone {
   match t {
-    Green => (c_green_soft, c_green)
-    Amber => (c_amber_soft, c_amber)
-    Blue => (c_blue_soft, c_blue)
-    Gold => (c_accent_soft, c_accent)
-    Red => (c_red_soft, c_red)
-    Muted => (c_tag_muted, c_text2)
+    Green => Green
+    Amber => Amber
+    Blue => Blue
+    Gold => Accented
+    Red => Red
+    Muted => Neutral
   }
 }
 
@@ -269,40 +232,23 @@ fn capsule_words(b : @view.View, words : @view.Live[String], look : @view.WordsL
 }
 
 ///|
-/// A tag: a state or a side, in its colour on its soft ground.
-fn tag(parent : @view.View, s : String, t : TagTone) -> @view.View {
-  let (g, ink) = tag_colors(t)
-  parent.box(fn(b) {
-    b.ground(Is(g)).radius(Is(5.0)).padding(Is((7.0, 2.0, 7.0, 2.0))) |> ignore
-    capsule_words(b, Is(s), wl(11.0, weight=600), fn() { ink })
+/// A tag: a state or a side, @sf's pill in its tone.
+fn tag(parent : @view.View, s : String, t : TagTone) -> Unit {
+  @sf.pill_node(parent, fn() { s }, tone=pill_tone(t)) |> ignore
+}
+
+///|
+/// A tag whose words and tone follow what they say (none while its words are none).
+fn tag_by(parent : @view.View, s : () -> String, t : () -> TagTone) -> Unit {
+  parent.show(along_row=true, fn() { s() != "" }, fn(x) {
+    x.pick(t, fn(slot, tone) { @sf.pill_node(slot, s, tone=pill_tone(tone)) |> ignore })
   })
 }
 
 ///|
-/// A tag whose words and tone follow what they say.
-fn tag_by(parent : @view.View, s : () -> String, t : () -> TagTone) -> @view.View {
-  // (empty: nothing drawn and no room taken)
-  parent.box(fn(b) {
-    b
-    .ground(By(fn() { if s() == "" { 0L } else { tag_colors(t()).0 } }))
-    .radius(Is(5.0))
-    .padding(By(fn() { if s() == "" { (0.0, 0.0, 0.0, 0.0) } else { (7.0, 2.0, 7.0, 2.0) } }))
-    |> ignore
-    capsule_words(b, By(s), wl(11.0, weight=600), fn() { tag_colors(t()).1 })
-  })
-}
-
-///|
-/// A pill: a count or a word beside a nav item.
-fn pill_by(parent : @view.View, s : () -> String, active : () -> Bool) -> @view.View {
-  parent.box(fn(b) {
-    b
-    .ground(By(fn() { if active() { 0xC8A25838L } else { c_elevated } }))
-    .radius(Is(99.0))
-    .padding(Is((7.0, 1.0, 7.0, 1.0)))
-    |> ignore
-    capsule_words(b, By(s), wl(11.0), fn() { if active() { c_accent } else { c_text2 } })
-  })
+/// A count or a word beside a sidebar item: @sf's pill, in the accent while its item is chosen.
+fn pill_by(parent : @view.View, s : () -> String, active : () -> Bool) -> Unit {
+  parent.pick(active, fn(slot, on) { @sf.pill_node(slot, s, tone=if on { Accented } else { Neutral }) |> ignore })
 }
 
 ///|
@@ -315,21 +261,21 @@ fn centred(v : @view.View, make : (@view.View) -> Unit) -> Unit {
 }
 
 ///|
-/// A dot: green running, amber on its way, grey stopped.
-fn dot(parent : @view.View, color : () -> Int64) -> @view.View {
-  parent.box(fn(d) {
-    d
-    .width(Is(Some(8.0)))
-    .height(Is(Some(8.0)))
-    .radius(Is(4.0))
-    .ground(By(color))
-    .shadow(By(fn() { if color() == c_green { (8.0, 0.0, 0x4FB87AB3L) } else { (0.0, 0.0, 0L) } }))
-    |> ignore
+/// A server's state as @sf's dot: online, busy (starting, stopping), error, or waiting.
+fn dot(parent : @view.View, state : () -> String) -> Unit {
+  @sf.state_dot_node(parent, fn() {
+    match state() {
+      "running" | "external" => "online"
+      "starting" | "stopping" => "busy"
+      "failed" => "error"
+      _ => "waiting"
+    }
   })
 }
 
 ///|
-/// A one-line field of words in its frame: `placeholder`; `edited` told as people type; `submitted` on Enter.
+/// A one-line field of words: @sf's input, `width` wide (none: as wide as its row leaves it); `edited` told as people
+/// type, `submitted` on Enter.
 fn line_field(
   parent : @view.View,
   field : @ui.Field,
@@ -340,36 +286,11 @@ fn line_field(
   label? : String = "",
 ) -> @view.View {
   parent.box(fn(b) {
-    b
-    .row(Is(true))
-    .lines_up(Is(Some(Middle)))
-    .height(Is(Some(34.0)))
-    .padding(Is((12.0, 0.0, 12.0, 0.0)))
-    .radius(Is(6.0))
-    .ground(Is(c_panel))
-    .edge(Is((1.0, c_border_strong)))
-    .cursor(Is(Some(IBeam)))
-    |> ignore
     match width {
-      Some(w) => b.width(Is(Some(w))) |> ignore
+      Some(w) => b.width(Is(Some(w))).shrink(Is(0.0)) |> ignore
       None => b.grow(Is(1.0)).basis(Is(Some(0.0))).min_width(Is(Some(0.0))) |> ignore
     }
-    @ui.field(
-      b,
-      field,
-      placeholder~,
-      font_size=12.5,
-      max_lines=1,
-      color=c_text,
-      placeholder_color=c_muted,
-      caret_color=c_accent,
-      enter_sends=true,
-      edited~,
-      submitted~,
-      label=if label == "" { placeholder } else { label },
-    )
-    .grow(Is(1.0))
-    |> ignore
+    @sf.input_node(b, field, placeholder~, label=if label == "" { placeholder } else { label }, edited~, submitted~) |> ignore
   })
 }
 

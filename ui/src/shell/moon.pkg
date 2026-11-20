@@ -5,6 +5,7 @@ import {
   "mbui/ui",
   "mbui/view",
   "bunker/model",
+  "stillfail/sf",
 }
 
 import {

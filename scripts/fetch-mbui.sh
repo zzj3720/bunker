@@ -1,18 +1,24 @@
 #!/bin/sh
-# Fetch mbui (libs/mbui of AFK-surf/monoid at the commit in mbui.pin) into vendor/monoid, sparse and shallow:
-# only libs/mbui is checked out. ui/moon.work names vendor/monoid/libs/mbui.
+# Fetch mbui and its component library (libs/mbui and libs/sf-ui of AFK-surf/monoid at the commit in
+# mbui.pin) into vendor/mbui and vendor/sf-ui: one shallow, blob-less fetch of that commit, those two folders
+# unpacked from it. ui/moon.work names both.
 set -e
 R=$(cd "$(dirname "$0")/.." && pwd)
 SHA=$(tr -d ' \r\n' < "$R/mbui.pin")
-D=$R/vendor/monoid
-if [ -f "$D/libs/mbui/moon.mod" ] && [ "$(git -C "$D" rev-parse HEAD 2>/dev/null)" = "$SHA" ]; then
-  echo "fetch-mbui: mbui $SHA already there"
+V=$R/vendor
+if [ "$(cat "$V/.pin" 2>/dev/null)" = "$SHA" ] && [ -f "$V/mbui/moon.mod" ] && [ -f "$V/sf-ui/moon.mod" ]; then
+  echo "fetch-mbui: mbui and sf-ui $SHA already there"
   exit 0
 fi
-mkdir -p "$D"
-[ -d "$D/.git" ] || { git -C "$D" init -q && git -C "$D" remote add origin https://github.com/AFK-surf/monoid.git; }
-git -C "$D" config core.autocrlf false
-git -C "$D" sparse-checkout set --cone libs/mbui
-git -C "$D" fetch -q --depth 1 --filter=blob:none origin "$SHA"
-git -C "$D" checkout -q --detach FETCH_HEAD
-echo "fetch-mbui: mbui $SHA in vendor/monoid/libs/mbui"
+G=$V/.monoid.git
+mkdir -p "$V"
+[ -d "$G" ] || { git init -q --bare "$G" && git -C "$G" remote add origin https://github.com/AFK-surf/monoid.git; }
+git -C "$G" fetch -q --depth 1 --filter=blob:none origin "$SHA"
+for lib in mbui sf-ui; do
+  # (kept: what a build made in it, out/ and _build/, is the build's cache; the sources replaced)
+  rm -rf "$V/$lib/src" "$V/$lib/scripts" "$V/$lib/tools"
+  mkdir -p "$V/$lib"
+  git -C "$G" archive FETCH_HEAD "libs/$lib" | tar -x -C "$V/$lib" --strip-components=2
+done
+echo "$SHA" > "$V/.pin"
+echo "fetch-mbui: mbui and sf-ui $SHA in vendor/"

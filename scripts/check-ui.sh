@@ -7,7 +7,7 @@ R=$(cd "$(dirname "$0")/.." && pwd)
 sh "$R/scripts/fetch-mbui.sh"
 if [ -z "${MBUI_TOOLS:-}" ] && [ -d "$HOME/stillfail-ci/mbui/tools" ]; then export MBUI_TOOLS="$HOME/stillfail-ci/mbui/tools"; fi
 [ -d "$HOME/.moon/bin" ] && export PATH="$HOME/.moon/bin:$PATH"
-. "$R/vendor/monoid/libs/mbui/scripts/env.sh"
+. "$R/vendor/mbui/scripts/env.sh"
 cd "$R/ui"
 moon version
 moon check --target native

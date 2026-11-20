@@ -96,29 +96,6 @@ fn play_page(v : @view.View, s : @model.Store) -> Unit {
 }
 
 ///|
-fn chip(parent : @view.View, label : () -> String, on : () -> Bool, press : () -> Unit, tone? : TagTone = Muted) -> Unit {
-  @headless.toggle(parent, Button, label, on, fn(_) { press() }, fn(v, t) {
-    let (soft, ink) = tag_colors(tone)
-    v
-    .height(Is(Some(28.0)))
-    .padding(Is((10.0, 0.0, 10.0, 0.0)))
-    .radius(Is(6.0))
-    .lines_up(Is(Some(Middle)))
-    .cursor(Is(Some(Hand)))
-    .ground(By(fn() { if t.on() { if tone == Muted { c_hover } else { soft } } else if t.hovered() { c_hover } else { c_elevated } }))
-    |> ignore
-    v.box(fn(w) {
-      w
-      .words(By(label), look=wl(12.0, weight=600))
-      .ink(By(fn() { if tone != Muted { ink } else if t.on() { c_text } else { c_text2 } }))
-      |> ignore
-    })
-    |> ignore
-  })
-  |> ignore
-}
-
-///|
 fn level_ink(level : String) -> Int64 {
   match level {
     "ok" => c_green
@@ -138,13 +115,12 @@ fn console_card(two : @view.View, s : @model.Store) -> Unit {
     c.grow(Is(1.55)).basis(Is(Some(0.0))).gap(Is(12.0)) |> ignore
     row(c, 6.0, fn(h) {
       text(h, "服务端实时日志（SPT.Server.exe）", size=14.0, weight=700).grow(Is(1.0)) |> ignore
-      chip(h, fn() { "全部" }, fn() { s.log_filter.get() == "all" }, fn() { s.log_filter.set("all") })
-      chip(h, fn() { "警告 \{s.server.get().warns}" }, fn() { s.log_filter.get() == "warn" }, fn() {
-        s.log_filter.set(if s.log_filter.untracked() == "warn" { "all" } else { "warn" })
-      }, tone=Amber)
-      chip(h, fn() { "报错 \{s.server.get().errors}" }, fn() { s.log_filter.get() == "error" }, fn() {
-        s.log_filter.set(if s.log_filter.untracked() == "error" { "all" } else { "error" })
-      }, tone=Red)
+      // (the log's filter: @sf's segmented choice, the counts in its words)
+      let filters = ["all", "warn", "error"]
+      @sf.seg_node(h, fn() { ["全部", "警告 \{s.server.get().warns}", "报错 \{s.server.get().errors}"] }, fn() {
+        filters.search(s.log_filter.get()).unwrap_or(0)
+      }, fn(i) { s.log_filter.set(filters[i]) }, said="日志筛选")
+      |> ignore
       button(h, "复制日志", fn() {
         let all = s.log.untracked().map(fn(l) { "[\{l.t}] \{l.text}" }).join("\n")
         @hostapi.clipboard_set(all)

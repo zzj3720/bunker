@@ -62,7 +62,7 @@ jobs:
           path: |
             ~/.cargo/registry
             core/target
-            vendor/monoid/libs/mbui/out/webview2
+            vendor/mbui/out/webview2
           key: win-${{ hashFiles('core/Cargo.lock', 'mbui.pin') }}
           restore-keys: win-
       - name: Build Bunker.exe

@@ -1,4 +1,5 @@
 members = [
   ".",
-  "../vendor/monoid/libs/mbui",
+  "../vendor/mbui",
+  "../vendor/sf-ui",
 ]

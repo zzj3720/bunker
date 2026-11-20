@@ -4,40 +4,24 @@
 // its entries goes), the second stepping in where the first was.
 
 ///|
-fn mods_page(v : @view.View, s : @model.Store, pop : @headless.Popover, anchor : Ref[@view.View?]) -> Unit {
+fn mods_page(v : @view.View, s : @model.Store, anchor : Ref[@view.View?]) -> Unit {
   v.padding(Is((22.0, 18.0, 22.0, 18.0))).gap(Is(16.0)) |> ignore
   takes_archives(v, s)
   let search = @ui.Field::new()
   row(v, 10.0, fn(t) {
     line_field(t, search, "搜索 Mod 名称、作者、DLL 或目录", width=300.0, edited=fn(q) { s.mods_query.set(q) }) |> ignore
+    // (the filters: @sf's segmented choice, each with its count)
     let count = fn(f : (@model.ModItem) -> Bool) { s.mods.get().filter(f).length() }
-    let filter_chip = fn(key : String, label : String, f : (@model.ModItem) -> Bool) {
-      @headless.toggle(t, Button, fn() { "\{label} (\{count(f)})" }, fn() { s.mods_filter.get() == key }, fn(_) {
-        s.mods_filter.set(key)
-      }, fn(b, tg) {
-        b
-        .height(Is(Some(32.0)))
-        .padding(Is((14.0, 0.0, 14.0, 0.0)))
-        .radius(Is(99.0))
-        .lines_up(Is(Some(Middle)))
-        .cursor(Is(Some(Hand)))
-        .ground(By(fn() { if tg.on() { c_accent_soft } else if tg.hovered() { c_hover } else { c_elevated } }))
-        .edge(By(fn() { (1.0, if tg.on() { c_accent } else { c_border_strong }) }))
-        |> ignore
-        b.box(fn(w) {
-          w
-          .words(By(fn() { "\{label} (\{count(f)})" }), look=wl(12.5, weight=600))
-          .ink(By(fn() { if tg.on() { c_accent } else { c_text2 } }))
-          |> ignore
-        })
-        |> ignore
-      })
-      |> ignore
-    }
-    filter_chip("all", "全部", fn(_) { true })
-    filter_chip("on", "已启用", fn(m) { m.enabled })
-    filter_chip("off", "已禁用", fn(m) { !m.enabled })
-    filter_chip("update", "可更新", fn(m) { m.update != "" })
+    let keys = ["all", "on", "off", "update"]
+    @sf.seg_node(t, fn() {
+      [
+        "全部 (\{count(fn(_) { true })})",
+        "已启用 (\{count(fn(m) { m.enabled })})",
+        "已禁用 (\{count(fn(m) { !m.enabled })})",
+        "可更新 (\{count(fn(m) { m.update != "" })})",
+      ]
+    }, fn() { keys.search(s.mods_filter.get()).unwrap_or(0) }, fn(i) { s.mods_filter.set(keys[i]) }, said="Mod 筛选")
+    |> ignore
     spacer(t)
     button(t, "检查更新", fn() { s.check_updates() }, label_by=fn() {
       if s.busy.get() == "checking" {
@@ -47,18 +31,13 @@ fn mods_page(v : @view.View, s : @model.Store, pop : @headless.Popover, anchor :
       }
     }, disabled=fn() { s.busy.get() != "" || s.current.get() == "" })
     |> ignore
-    let trig = pop.trigger(t, fn() { "+ 安装 Mod" }, fn(b, d) {
-      b
-      .row(Is(true))
-      .lines_up(Is(Some(Middle)))
-      .height(Is(Some(36.0)))
-      .padding(Is((18.0, 0.0, 18.0, 0.0)))
-      .radius(Is(6.0))
-      .cursor(Is(Some(Hand)))
-      .ground(By(fn() { if d.hovered() || d.open() { c_accent_hover } else { c_accent } }))
-      |> ignore
-      b.box(fn(w) { w.words(Is("+ 安装 Mod ▾"), ink=c_ink_on_accent, look=wl(13.0, weight=600)) |> ignore }) |> ignore
-    }, disabled=fn() { s.current.get() == "" })
+    // (@sf's button that opens what goes beside it: the install popover; a press on it while that is open closes it as
+    // it goes down outside it, and opens it anew)
+    let trig = @sf.button_opens_node(t, fn() { "+ 安装 Mod" }, fn(_) {
+      if s.current.untracked() != "" {
+        s.install_open.set(true)
+      }
+    }, tone=Primary)
     anchor.val = Some(trig)
   })
   |> ignore
