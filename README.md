@@ -52,7 +52,7 @@ bash scripts/build-win.sh        # → out/win/Bunker.exe
 
 ```sh
 cd core && cargo test                 # core：单元测试和端到端测试（全部在临时目录里跑，不碰真实安装）
-T=1 sh scripts/check-ui.sh            # UI：moon check 和 mbui Tester 测试（配假 core）
+T=1 bash scripts/check-ui.sh            # UI：moon check 和 mbui Tester 测试（配假 core）
 ```
 
 CI（`.github/workflows/ci.yml`）在 GitHub 免费 runner 上跑：Windows 跑 core 测试并构建 `Bunker.exe`（产物上传为 artifact），Linux 跑 UI 测试。

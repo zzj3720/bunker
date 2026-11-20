@@ -1,7 +1,7 @@
-#!/bin/sh
+#!/bin/bash
 # Type-check the UI (and run its tests with T=1) against the pinned mbui, on a machine with MoonBit.
-#   sh scripts/check-ui.sh            moon check (native)
-#   T=1 sh scripts/check-ui.sh        and moon test (wasm-gc) of ui/src/shell
+#   bash scripts/check-ui.sh            moon check (native)
+#   T=1 bash scripts/check-ui.sh        and moon test (wasm-gc) of ui/src/shell
 set -e
 R=$(cd "$(dirname "$0")/.." && pwd)
 sh "$R/scripts/fetch-mbui.sh"

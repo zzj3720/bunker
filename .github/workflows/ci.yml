@@ -40,7 +40,7 @@ jobs:
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
       - name: moon check + Tester tests
-        run: T=1 sh scripts/check-ui.sh
+        run: T=1 bash scripts/check-ui.sh
 
   windows:
     runs-on: windows-latest
