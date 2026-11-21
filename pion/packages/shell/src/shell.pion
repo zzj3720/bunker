@@ -53,9 +53,10 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
       })
 
       // Instance switcher (official lg::liquid_popover_node + lg::liquid_button_node)
+      // Mount popover on `root` (sibling AFTER `stage`) so it always paints above both sidebar and main content!
       let _ = lg::liquid_popover_node(
         side,
-        stage,
+        root,
         fn() { s.inst_open.get() },
         fn(v : Bool) -> Unit {
           s.inst_open.set(v)
@@ -218,13 +219,13 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
         let _ = body_pad.pick(fn() { model::page_index(s.page.get()) }, fn(body : view::View, idx : Int) -> Unit {
           let _ = body.grow(view::Live::Is(1.0)).min_height(view::Live::Is(Some(0.0)))
           if idx == 1 {
-            mods_page(body, stage, s)
+            mods_page(body, root, s)
           } else if idx == 2 {
             snapshots_page(body, s)
           } else if idx == 3 {
             config_page(body, s)
           } else {
-            play_page(body, stage, s)
+            play_page(body, root, s)
           }
         })
       })
