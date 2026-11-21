@@ -1,0 +1,712 @@
+import "hostapi"
+import "signals"
+
+// ---- String & JSON helpers ----
+
+pub fn str_trim(s : String) -> String {
+  let n = s.length()
+  let mut lo = 0
+  while lo < n {
+    let c = s.code_unit_at(lo)
+    if c == 32 || c == 9 || c == 10 || c == 13 {
+      lo += 1
+    } else {
+      break
+    }
+  }
+  let mut hi = n
+  while hi > lo {
+    let c = s.code_unit_at(hi - 1)
+    if c == 32 || c == 9 || c == 10 || c == 13 {
+      hi -= 1
+    } else {
+      break
+    }
+  }
+  s.slice(lo, hi)
+}
+
+pub fn str_lower(s : String) -> String {
+  let sb = StringBuilder::new()
+  let n = s.length()
+  let mut i = 0
+  while i < n {
+    let c = s.code_unit_at(i)
+    if c >= 65 && c <= 90 {
+      sb.write_byte((c + 32) as Byte)
+    } else {
+      sb.write_byte(c as Byte)
+    }
+    i += 1
+  }
+  sb.to_string()
+}
+
+pub fn str_contains(hay : String, needle : String) -> Bool {
+  let hn = hay.length()
+  let nn = needle.length()
+  if nn == 0 {
+    return true
+  }
+  if nn > hn {
+    return false
+  }
+  let mut i = 0
+  while i <= hn - nn {
+    let mut ok = true
+    let mut j = 0
+    while j < nn {
+      if hay.code_unit_at(i + j) != needle.code_unit_at(j) {
+        ok = false
+        break
+      }
+      j += 1
+    }
+    if ok {
+      return true
+    }
+    i += 1
+  }
+  false
+}
+
+pub fn str_join(parts : Array[String], sep : String) -> String {
+  let sb = StringBuilder::new()
+  let mut i = 0
+  while i < parts.length() {
+    if i > 0 {
+      for k in 0..<sep.length() {
+        sb.write_byte(sep.code_unit_at(k) as Byte)
+      }
+    }
+    let p = parts[i]
+    for k in 0..<p.length() {
+      sb.write_byte(p.code_unit_at(k) as Byte)
+    }
+    i += 1
+  }
+  sb.to_string()
+}
+
+pub fn str_basename(path : String) -> String {
+  let n = path.length()
+  let mut last = -1
+  let mut i = 0
+  while i < n {
+    let c = path.code_unit_at(i)
+    if c == 47 || c == 92 {
+      last = i
+    }
+    i += 1
+  }
+  if last >= 0 && last + 1 < n {
+    path.slice(last + 1, n)
+  } else {
+    path
+  }
+}
+
+pub fn jobj_of(pairs : Array[(String, hostapi::JsonValue)]) -> hostapi::JsonValue {
+  let m : Map[String, hostapi::JsonValue] = Map::new()
+  for p in pairs {
+    m.set(p.0, p.1)
+  }
+  hostapi::JsonValue::JObject(m)
+}
+
+pub fn jget(j : hostapi::JsonValue, key : String) -> hostapi::JsonValue {
+  match j {
+    hostapi::JsonValue::JObject(m) =>
+      match m.get(key) {
+        Some(v) => v
+        None => hostapi::JsonValue::JNull
+      }
+    _ => hostapi::JsonValue::JNull
+  }
+}
+
+pub fn jstr(j : hostapi::JsonValue, key : String) -> String {
+  match jget(j, key) {
+    hostapi::JsonValue::JString(s) => s
+    _ => ""
+  }
+}
+
+pub fn jnum(j : hostapi::JsonValue, key : String) -> Double {
+  match jget(j, key) {
+    hostapi::JsonValue::JNumber(n) => n
+    _ => 0.0
+  }
+}
+
+pub fn jint(j : hostapi::JsonValue, key : String) -> Int {
+  jnum(j, key).to_int()
+}
+
+pub fn jbool(j : hostapi::JsonValue, key : String) -> Bool {
+  match jget(j, key) {
+    hostapi::JsonValue::JBool(b) => b
+    _ => false
+  }
+}
+
+pub fn jarr(j : hostapi::JsonValue, key : String) -> Array[hostapi::JsonValue] {
+  match jget(j, key) {
+    hostapi::JsonValue::JArray(a) => a
+    _ => []
+  }
+}
+
+pub fn jstrings(xs : Array[hostapi::JsonValue]) -> Array[String] {
+  let out : Array[String] = []
+  for x in xs {
+    match x {
+      hostapi::JsonValue::JString(s) => out.push(s)
+      _ => ()
+    }
+  }
+  out
+}
+
+// ---- Domain types ----
+
+#derive(Eq)
+pub enum Page {
+  Play
+  Mods
+  Snapshots
+  Config
+}
+
+pub fn page_index(p : Page) -> Int {
+  match p {
+    Page::Play => 0
+    Page::Mods => 1
+    Page::Snapshots => 2
+    Page::Config => 3
+  }
+}
+
+pub fn page_from_index(i : Int) -> Page {
+  if i == 1 {
+    Page::Mods
+  } else if i == 2 {
+    Page::Snapshots
+  } else if i == 3 {
+    Page::Config
+  } else {
+    Page::Play
+  }
+}
+
+pub struct Inst {
+  pub root : String
+  pub name : String
+  pub layout : String
+  pub spt_version : String
+  pub eft_version : String
+  pub server_mods_dir : String
+  pub client_plugins_dir : String
+  pub profiles_dir : String
+  pub server_exe : String
+  pub client_exe : String
+  pub valid : Bool
+  pub problems : Array[String]
+}
+
+pub fn Inst::from_json(j : hostapi::JsonValue) -> Inst {
+  Inst::{
+    root: jstr(j, "root"),
+    name: jstr(j, "name"),
+    layout: jstr(j, "layout"),
+    spt_version: jstr(j, "spt_version"),
+    eft_version: jstr(j, "eft_version"),
+    server_mods_dir: jstr(j, "server_mods_dir"),
+    client_plugins_dir: jstr(j, "client_plugins_dir"),
+    profiles_dir: jstr(j, "profiles_dir"),
+    server_exe: jstr(j, "server_exe"),
+    client_exe: jstr(j, "client_exe"),
+    valid: jbool(j, "valid"),
+    problems: jstrings(jarr(j, "problems")),
+  }
+}
+
+pub struct BadDll {
+  pub path : String
+  pub shown : String
+  pub built_for : String
+}
+
+pub struct ModRef {
+  pub id : String
+  pub name : String
+}
+
+pub struct ModItem {
+  pub id : String
+  pub name : String
+  pub author : String
+  pub version : String
+  pub side : String
+  pub enabled : Bool
+  pub managed : Bool
+  pub roots : Array[String]
+  pub loc_en : Int
+  pub loc_ch : Int
+  pub source_kind : String
+  pub source_url : String
+  pub compat : String
+  pub spt_range : String
+  pub update : String
+  pub dll_status : String
+  pub built_for : String
+  pub bad_dlls : Array[BadDll]
+  pub required_by : Array[ModRef]
+  pub requires : Array[ModRef]
+  pub fix_url : String
+}
+
+pub fn ModItem::incompatible(self : ModItem) -> Bool {
+  self.enabled && self.dll_status == "incompatible"
+}
+
+pub fn ModItem::needed_by(self : ModItem) -> String {
+  let names : Array[String] = []
+  for r in self.required_by {
+    names.push(r.name)
+  }
+  str_join(names, "、")
+}
+
+pub fn ModItem::with_enabled(self : ModItem, on : Bool) -> ModItem {
+  ModItem::{
+    id: self.id,
+    name: self.name,
+    author: self.author,
+    version: self.version,
+    side: self.side,
+    enabled: on,
+    managed: self.managed,
+    roots: self.roots,
+    loc_en: self.loc_en,
+    loc_ch: self.loc_ch,
+    source_kind: self.source_kind,
+    source_url: self.source_url,
+    compat: self.compat,
+    spt_range: self.spt_range,
+    update: self.update,
+    dll_status: self.dll_status,
+    built_for: self.built_for,
+    bad_dlls: self.bad_dlls,
+    required_by: self.required_by,
+    requires: self.requires,
+    fix_url: self.fix_url,
+  }
+}
+
+pub fn ModItem::with_update(self : ModItem, latest : String) -> ModItem {
+  ModItem::{
+    id: self.id,
+    name: self.name,
+    author: self.author,
+    version: self.version,
+    side: self.side,
+    enabled: self.enabled,
+    managed: self.managed,
+    roots: self.roots,
+    loc_en: self.loc_en,
+    loc_ch: self.loc_ch,
+    source_kind: self.source_kind,
+    source_url: self.source_url,
+    compat: self.compat,
+    spt_range: self.spt_range,
+    update: latest,
+    dll_status: self.dll_status,
+    built_for: self.built_for,
+    bad_dlls: self.bad_dlls,
+    required_by: self.required_by,
+    requires: self.requires,
+    fix_url: self.fix_url,
+  }
+}
+
+pub fn ModItem::from_json(j : hostapi::JsonValue) -> ModItem {
+  let loc = jget(j, "locale")
+  let bad_dlls : Array[BadDll] = []
+  for b in jarr(j, "bad_dlls") {
+    bad_dlls.push(BadDll::{
+      path: jstr(b, "path"),
+      shown: jstr(b, "shown"),
+      built_for: jstr(b, "built_for"),
+    })
+  }
+  let required_by : Array[ModRef] = []
+  for r in jarr(j, "required_by") {
+    required_by.push(ModRef::{ id: jstr(r, "id"), name: jstr(r, "name") })
+  }
+  let requires : Array[ModRef] = []
+  for r in jarr(j, "requires") {
+    requires.push(ModRef::{ id: jstr(r, "id"), name: jstr(r, "name") })
+  }
+  ModItem::{
+    id: jstr(j, "id"),
+    name: jstr(j, "name"),
+    author: jstr(j, "author"),
+    version: jstr(j, "version"),
+    side: jstr(j, "side"),
+    enabled: jbool(j, "enabled"),
+    managed: jbool(j, "managed"),
+    roots: jstrings(jarr(j, "roots")),
+    loc_en: jint(loc, "en"),
+    loc_ch: jint(loc, "ch"),
+    source_kind: jstr(j, "source_kind"),
+    source_url: jstr(j, "source_url"),
+    compat: jstr(j, "compat"),
+    spt_range: jstr(j, "spt_range"),
+    update: "",
+    dll_status: jstr(j, "dll_status"),
+    built_for: jstr(j, "built_for"),
+    bad_dlls,
+    required_by,
+    requires,
+    fix_url: jstr(j, "fix_url"),
+  }
+}
+
+pub struct Snap {
+  pub id : String
+  pub note : String
+  pub kind : String
+  pub created_at : Double
+  pub files : Int
+  pub bytes : Double
+  pub characters : Array[String]
+}
+
+pub fn Snap::from_json(j : hostapi::JsonValue) -> Snap {
+  Snap::{
+    id: jstr(j, "id"),
+    note: jstr(j, "note"),
+    kind: jstr(j, "kind"),
+    created_at: jnum(j, "created_at"),
+    files: jarr(j, "files").length(),
+    bytes: jnum(j, "bytes"),
+    characters: jstrings(jarr(j, "characters")),
+  }
+}
+
+pub struct Character {
+  pub profile_id : String
+  pub username : String
+  pub nickname : String
+  pub side : String
+  pub edition : String
+  pub level : Int
+  pub roubles : Double
+  pub started : Bool
+}
+
+pub fn Character::from_json(j : hostapi::JsonValue) -> Character {
+  Character::{
+    profile_id: jstr(j, "profile_id"),
+    username: jstr(j, "username"),
+    nickname: jstr(j, "nickname"),
+    side: jstr(j, "side"),
+    edition: jstr(j, "edition"),
+    level: jint(j, "level"),
+    roubles: jnum(j, "roubles"),
+    started: jbool(j, "started"),
+  }
+}
+
+pub fn Character::shown(self : Character) -> String {
+  if self.nickname == "" {
+    self.username
+  } else {
+    self.nickname
+  }
+}
+
+pub struct ServerStatus {
+  pub state : String
+  pub pid : Int
+  pub port : Int
+  pub started_at : Double
+  pub ready_at : Double
+  pub warns : Int
+  pub errors : Int
+  pub message : String
+}
+
+pub fn ServerStatus::from_json(j : hostapi::JsonValue) -> ServerStatus {
+  ServerStatus::{
+    state: jstr(j, "state"),
+    pid: jint(j, "pid"),
+    port: jint(j, "port"),
+    started_at: jnum(j, "started_at"),
+    ready_at: jnum(j, "ready_at"),
+    warns: jint(j, "warns"),
+    errors: jint(j, "errors"),
+    message: jstr(j, "message"),
+  }
+}
+
+pub let server_unknown : ServerStatus = ServerStatus::{
+  state: "stopped",
+  pid: 0,
+  port: 6969,
+  started_at: 0.0,
+  ready_at: 0.0,
+  warns: 0,
+  errors: 0,
+  message: "",
+}
+
+pub struct LogLine {
+  pub n : Int
+  pub t : String
+  pub level : String
+  pub text : String
+}
+
+pub fn LogLine::from_json(j : hostapi::JsonValue) -> LogLine {
+  LogLine::{
+    n: jint(j, "n"),
+    t: jstr(j, "t"),
+    level: jstr(j, "level"),
+    text: jstr(j, "text"),
+  }
+}
+
+pub struct ConfigFile {
+  pub path : String
+  pub kind : String
+  pub owner : String
+  pub bytes : Double
+}
+
+pub fn ConfigFile::from_json(j : hostapi::JsonValue) -> ConfigFile {
+  ConfigFile::{
+    path: jstr(j, "path"),
+    kind: jstr(j, "kind"),
+    owner: jstr(j, "owner"),
+    bytes: jnum(j, "bytes"),
+  }
+}
+
+pub struct PlanMapping {
+  pub from : String
+  pub to : String
+  pub side : String
+  pub files : Int
+}
+
+pub struct Plan {
+  pub id : String
+  pub archive : String
+  pub name : String
+  pub version : String
+  pub target : String
+  pub replaces : String
+  pub adapted : Bool
+  pub mappings : Array[PlanMapping]
+  pub conflicts : Array[String]
+  pub skipped : Array[String]
+  pub warnings : Array[String]
+  pub files : Int
+}
+
+pub fn Plan::from_json(j : hostapi::JsonValue) -> Plan {
+  let mappings : Array[PlanMapping] = []
+  for m in jarr(j, "mappings") {
+    mappings.push(PlanMapping::{
+      from: jstr(m, "from"),
+      to: jstr(m, "to"),
+      side: jstr(m, "side"),
+      files: jint(m, "files"),
+    })
+  }
+  let conflicts : Array[String] = []
+  for c in jarr(j, "conflicts") {
+    conflicts.push(jstr(c, "path"))
+  }
+  Plan::{
+    id: jstr(j, "id"),
+    archive: jstr(j, "archive"),
+    name: jstr(j, "name"),
+    version: jstr(j, "version"),
+    target: jstr(j, "target"),
+    replaces: jstr(j, "replaces"),
+    adapted: jbool(j, "adapted"),
+    mappings,
+    conflicts,
+    skipped: jstrings(jarr(j, "skipped")),
+    warnings: jstrings(jarr(j, "warnings")),
+    files: jint(j, "files"),
+  }
+}
+
+pub struct Toast {
+  pub text : String
+  pub bad : Bool
+}
+
+// ---- Formatting helpers ----
+
+pub fn roubles_text(r : Double) -> String {
+  if r >= 1000000.0 {
+    let tenths = (r / 100000.0).to_int()
+    "\{tenths / 10}.\{tenths % 10}M ₽"
+  } else if r >= 1000.0 {
+    "\{(r / 1000.0).to_int()}K ₽"
+  } else {
+    "\{r.to_int()} ₽"
+  }
+}
+
+pub fn count_text(n : Int) -> String {
+  let s = n.to_string()
+  let sb = StringBuilder::new()
+  let len = s.length()
+  let mut i = 0
+  while i < len {
+    if i > 0 && (len - i) % 3 == 0 {
+      sb.write_byte(44 as Byte)
+    }
+    sb.write_byte(s.code_unit_at(i) as Byte)
+    i += 1
+  }
+  sb.to_string()
+}
+
+pub fn moment_text(ms : Double, offset_min : Int) -> String {
+  let secs = (ms / 1000.0).to_int64() + offset_min.to_int64() * 60L
+  let days = if secs >= 0L { secs / 86400L } else { (secs - 86399L) / 86400L }
+  let t = secs - days * 86400L
+  let z = days + 719468L
+  let era = (if z >= 0L { z } else { z - 146096L }) / 146097L
+  let doe = z - era * 146097L
+  let yoe = (doe - doe / 1460L + doe / 36524L - doe / 146096L) / 365L
+  let doy = doe - (365L * yoe + yoe / 4L - yoe / 100L)
+  let mp = (5L * doy + 2L) / 153L
+  let d = doy - (153L * mp + 2L) / 5L + 1L
+  let m = if mp < 10L { mp + 3L } else { mp - 9L }
+  let two = fn(x : Int64) -> String { if x < 10L { "0\{x}" } else { x.to_string() } }
+  "\{two(m)}-\{two(d)} \{two(t / 3600L)}:\{two(t / 60L % 60L)}"
+}
+
+pub fn bytes_text(b : Double) -> String {
+  if b >= 1048576.0 {
+    let tenths = (b / 104857.6).to_int()
+    "\{tenths / 10}.\{tenths % 10} MB"
+  } else if b >= 1024.0 {
+    "\{(b / 1024.0).to_int()} KB"
+  } else {
+    "\{b.to_int()} B"
+  }
+}
+
+pub fn dependents_of(list : Array[ModItem]) -> Array[ModRef] {
+  let out : Array[ModRef] = []
+  for m in list {
+    for r in m.required_by {
+      let mut in_list = false
+      for x in list {
+        if x.id == r.id {
+          in_list = true
+          break
+        }
+      }
+      let mut in_out = false
+      for x in out {
+        if x.id == r.id {
+          in_out = true
+          break
+        }
+      }
+      if !in_list && !in_out {
+        out.push(r)
+      }
+    }
+  }
+  out
+}
+
+// ---- signals::Eq implementations ----
+
+impl signals::Eq for Page {
+  fn eq(self : Page, other : Page) -> Bool {
+    page_index(self) == page_index(other)
+  }
+}
+
+impl signals::Eq for Inst {
+  fn eq(self : Inst, other : Inst) -> Bool {
+    self.root == other.root && self.name == other.name && self.spt_version == other.spt_version && self.valid == other.valid
+  }
+}
+
+impl signals::Eq for ModItem {
+  fn eq(self : ModItem, other : ModItem) -> Bool {
+    self.id == other.id &&
+    self.name == other.name &&
+    self.version == other.version &&
+    self.enabled == other.enabled &&
+    self.update == other.update &&
+    self.dll_status == other.dll_status &&
+    self.compat == other.compat
+  }
+}
+
+impl signals::Eq for Snap {
+  fn eq(self : Snap, other : Snap) -> Bool {
+    self.id == other.id && self.note == other.note && self.files == other.files
+  }
+}
+
+impl signals::Eq for Character {
+  fn eq(self : Character, other : Character) -> Bool {
+    self.username == other.username && self.nickname == other.nickname && self.level == other.level && self.roubles == other.roubles
+  }
+}
+
+impl signals::Eq for ServerStatus {
+  fn eq(self : ServerStatus, other : ServerStatus) -> Bool {
+    self.state == other.state &&
+    self.pid == other.pid &&
+    self.port == other.port &&
+    self.warns == other.warns &&
+    self.errors == other.errors &&
+    self.message == other.message
+  }
+}
+
+impl signals::Eq for LogLine {
+  fn eq(self : LogLine, other : LogLine) -> Bool {
+    self.n == other.n && self.level == other.level && self.text == other.text
+  }
+}
+
+impl signals::Eq for ConfigFile {
+  fn eq(self : ConfigFile, other : ConfigFile) -> Bool {
+    self.path == other.path && self.bytes == other.bytes
+  }
+}
+
+impl signals::Eq for PlanMapping {
+  fn eq(self : PlanMapping, other : PlanMapping) -> Bool {
+    self.from == other.from && self.to == other.to && self.files == other.files
+  }
+}
+
+impl signals::Eq for Plan {
+  fn eq(self : Plan, other : Plan) -> Bool {
+    self.id == other.id && self.archive == other.archive && self.files == other.files
+  }
+}
+
+impl signals::Eq for Toast {
+  fn eq(self : Toast, other : Toast) -> Bool {
+    self.text == other.text && self.bad == other.bad
+  }
+}

@@ -1,0 +1,29 @@
+[package]
+name = "bunker"
+version = "0.2.0"
+
+[dependencies]
+corelink = { path = "../../packages/corelink" }
+host = { path = "../../deps/invar/packages/host" }
+hostapi = { path = "../../deps/invar/packages/hostapi" }
+signals = { path = "../../deps/invar/packages/signals" }
+view = { path = "../../deps/invar/packages/view" }
+ui = { path = "../../deps/invar/packages/ui" }
+lg = { path = "../../deps/invar/packages/lg" }
+model = { path = "../../packages/model" }
+shell = { path = "../../packages/shell" }
+
+[link.macos]
+frameworks = [
+  "Foundation",
+  "Cocoa",
+  "Metal",
+  "QuartzCore",
+  "CoreText",
+  "CoreGraphics",
+  "ImageIO",
+  "AVFoundation",
+  "CoreMedia",
+  "CoreVideo",
+  "WebKit",
+]

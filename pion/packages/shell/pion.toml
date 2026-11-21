@@ -1,0 +1,14 @@
+[package]
+name = "shell"
+version = "0.1.0"
+
+[dependencies]
+signals = { path = "../../deps/invar/packages/signals" }
+paint = { path = "../../deps/invar/packages/paint" }
+view = { path = "../../deps/invar/packages/view" }
+ui = { path = "../../deps/invar/packages/ui" }
+headless = { path = "../../deps/invar/packages/headless" }
+motion = { path = "../../deps/invar/packages/motion" }
+lg = { path = "../../deps/invar/packages/lg" }
+hostapi = { path = "../../deps/invar/packages/hostapi" }
+model = { path = "../model" }

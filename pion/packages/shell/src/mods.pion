@@ -1,0 +1,311 @@
+// Mods page: Floating Liquid Glass toolbar + open hairline-divided list directly on the wallpaper.
+
+import "headless"
+import "hostapi"
+import "lg"
+import "model"
+import "signals"
+import "ui"
+import "view"
+
+fn filter_index(f : String) -> Int {
+  if f == "on" { 1 } else if f == "off" { 2 } else if f == "update" { 3 } else if f == "bad" { 4 } else { 0 }
+}
+
+fn filter_from_index(i : Int) -> String {
+  if i == 1 { "on" } else if i == 2 { "off" } else if i == 3 { "update" } else if i == 4 { "bad" } else { "all" }
+}
+
+fn side_label(side : String) -> String {
+  if side == "client" { "客户端" } else if side == "server" { "服务端" } else if side == "both" { "双端" } else { side }
+}
+
+pub fn mods_page(parent : view::View, host : view::View, s : model::Store) -> Unit {
+  let search_field = ui::Field::new()
+  let _ = parent.box(fn(col : view::View) -> Unit {
+    let _ = col
+      .grow(view::Live::Is(1.0))
+      .min_height(view::Live::Is(Some(0.0)))
+      .gap(view::Live::Is(20.0))
+
+    // Floating Liquid Glass toolbar
+    let _ = hrow(col, 12.0, fn(bar : view::View) -> Unit {
+      let _ = lg::liquid_search_bar_node(
+        bar,
+        search_field,
+        placeholder="搜索 Mod 名称、作者或目录…",
+        label=fn() { "搜索 Mod" },
+        edited=fn(q : String) -> Unit { s.mods_query.set(q) },
+        on_clear=fn() -> Unit { s.mods_query.set("") },
+      ).grow(view::Live::Is(1.0))
+
+      let _ = lg::liquid_segmented_node(
+        bar,
+        fn() { ["全部", "已启用", "已禁用", "有更新", "不兼容"] },
+        fn() { filter_index(s.mods_filter.get()) },
+        fn(i : Int) -> Unit { s.mods_filter.set(filter_from_index(i)) },
+        width=310.0,
+        height=44.0,
+      )
+
+      let _ = lg::liquid_button_node(
+        bar,
+        fn() { if s.busy.get() == "checking" { "检查中…" } else { "检查更新" } },
+        fn() { s.check_updates() },
+        disabled=fn() { s.busy.get() != "" },
+      )
+
+      let _ = lg::liquid_popover_node(
+        bar,
+        host,
+        fn() { s.install_open.get() },
+        fn(v : Bool) -> Unit {
+          s.install_open.set(v)
+          if !v { s.drop_plan() }
+        },
+        fn() { "安装 Mod" },
+        fn(trig : view::View, _d : headless::Disclosure) -> Unit {
+          let _ = lg::liquid_button_node(
+            trig,
+            fn() { "安装 Mod" },
+            fn() { s.install_open.set(!s.install_open.untracked()) },
+            tint=c_cobalt,
+          )
+        },
+        fn() { "安装新 Mod" },
+        fn(pop : view::View) -> Unit { install_popover_body(pop, s) },
+        placement=headless::Placement::BelowEnd,
+        width=440.0,
+      )
+    })
+
+    // Open list directly on wallpaper
+    let _ = col.box(fn(list_wrap : view::View) -> Unit {
+      let _ = list_wrap.grow(view::Live::Is(1.0)).min_height(view::Live::Is(Some(0.0))).gap(view::Live::Is(6.0))
+      section_head(
+        list_wrap,
+        "已安装 MOD",
+        detail=fn() { "显示 \{s.mods_shown().length()} / 共 \{s.mods.get().length()} · 禁用暂存 .bunker/disabled" },
+      )
+      let _ = list_wrap.scrolls(view::Scroll::plain(), fn(sc : view::View) -> Unit {
+        let _ = sc.grow(view::Live::Is(1.0))
+        sc.show(fn() { s.mods_shown().length() == 0 }, fn(empty : view::View) -> Unit {
+          let _ = empty.padding(view::Live::Is((0.0, 32.0, 0.0, 32.0))).lines_up(view::Live::Is(Some(view::Along::Middle)))
+          let _ = label(empty, "没有匹配的 Mod。", size=14.0, ink=ink_muted)
+        })
+        sc.each(
+          fn() { s.mods_shown() },
+          fn(m : model::ModItem) -> String { m.id },
+          fn(slot : view::View, item_sig : signals::Signal[model::ModItem]) -> Unit {
+            mod_row(slot, s, item_sig)
+            divider(slot)
+          },
+        )
+      })
+    })
+  })
+}
+
+fn mod_row(parent : view::View, s : model::Store, m : signals::Signal[model::ModItem]) -> Unit {
+  let confirm = signals::signal(false)
+  let asking = signals::signal(false)
+  let _ = parent.box(fn(r : view::View) -> Unit {
+    let _ = r
+      .row(view::Live::Is(true))
+      .lines_up(view::Live::Is(Some(view::Along::Middle)))
+      .gap(view::Live::Is(16.0))
+      .padding(view::Live::Is((4.0, 14.0, 4.0, 14.0)))
+
+    let _ = lg::liquid_toggle_node(
+      r,
+      fn() { m.get().enabled },
+      fn(on : Bool) -> Unit { s.set_mod_enabled(m.untracked().id, on) },
+      fn() { m.get().name },
+    )
+
+    let _ = r.box(fn(info : view::View) -> Unit {
+      let _ = info.grow(view::Live::Is(1.0)).basis(view::Live::Is(Some(0.0))).min_width(view::Live::Is(Some(0.0))).gap(view::Live::Is(3.0))
+      let _ = hrow(info, 8.0, fn(top : view::View) -> Unit {
+        let _ = label_by(top, fn() { m.get().name }, size=15.0, weight=600)
+        let _ = label_by(top, fn() { if m.get().version != "" { "v\{m.get().version}" } else { "" } }, size=12.5, ink=ink_muted)
+        let _ = label_by(top, fn() { if m.get().author != "" { "by \{m.get().author}" } else { "" } }, size=12.5, ink=ink_muted)
+      })
+      let _ = label_by(
+        info,
+        fn() {
+          let cur = m.get()
+          if cur.roots.length() > 0 { cur.roots[0] } else { cur.id }
+        },
+        size=12.0,
+        ink=ink_muted,
+      )
+    })
+
+    let _ = hrow(r, 6.0, fn(tags : view::View) -> Unit {
+      let _ = lg::liquid_badge_node(tags, fn() { side_label(m.get().side) }, tone=lg::LiquidTone::Neutral)
+      tags.show(fn() { m.get().update != "" }, fn(u : view::View) -> Unit {
+        let _ = lg::liquid_badge_node(u, fn() { "可升 v\{m.get().update}" }, tone=lg::LiquidTone::Accent, dot=true)
+      })
+      tags.show(fn() { m.get().incompatible() }, fn(b : view::View) -> Unit {
+        let _ = lg::liquid_badge_node(b, fn() { "不兼容" }, tone=lg::LiquidTone::Danger, dot=true)
+      })
+      tags.show(fn() { m.get().loc_ch > 0 }, fn(lc : view::View) -> Unit {
+        let _ = lg::liquid_badge_node(lc, fn() { "汉化 \{m.get().loc_ch}" }, tone=lg::LiquidTone::Success)
+      })
+    })
+
+    let _ = r.pick(
+      fn() -> Int { if asking.get() { 2 } else if m.get().incompatible() { 1 } else { 0 } },
+      fn(act : view::View, kind : Int) -> Unit {
+        let _ = act.row(view::Live::Is(true)).gap(view::Live::Is(6.0))
+        if kind == 2 {
+          let _ = inline_pill(act, fn() { "取消" }, fn() { asking.set(false) })
+          let _ = inline_pill(act, fn() { "仅禁用" }, fn() {
+            asking.set(false)
+            s.disable_mods([m.untracked().id], false)
+          })
+          let _ = inline_pill(act, fn() { "连同依赖" }, fn() {
+            asking.set(false)
+            s.disable_mods([m.untracked().id], true)
+          }, danger=true)
+        } else if kind == 1 {
+          act.show(fn() { m.get().fix_url != "" }, fn(y : view::View) -> Unit {
+            let _ = inline_pill(y, fn() { "一键更新" }, fn() { s.fix_mods([m.untracked().id]) }, tint=c_cobalt)
+          })
+          let _ = inline_pill(act, fn() { "禁用" }, fn() {
+            if m.untracked().required_by.length() == 0 {
+              s.disable_mods([m.untracked().id], false)
+            } else {
+              asking.set(true)
+            }
+          }, danger=true)
+        } else {
+          act.show(fn() { m.get().update != "" }, fn(y : view::View) -> Unit {
+            let _ = inline_pill(y, fn() { "更新" }, fn() { s.update_mod(m.untracked().id) }, tint=c_cobalt)
+          })
+          let _ = inline_pill(act, fn() { "配置" }, fn() {
+            let owners : Array[String] = []
+            for rt in m.untracked().roots { owners.push(model::str_basename(rt)) }
+            s.page.set(model::Page::Config)
+            for cf in s.configs.untracked() {
+              for ow in owners {
+                if cf.owner == ow {
+                  s.open_config(cf.path)
+                  return
+                }
+              }
+            }
+            s.say("这个 Mod 没有可编辑的配置文件（JSON / JSONC / CFG）")
+          })
+          let _ = inline_pill(
+            act,
+            fn() { if confirm.get() { "确认卸载" } else { "卸载" } },
+            fn() {
+              if confirm.untracked() {
+                confirm.set(false)
+                s.uninstall(m.untracked().id)
+              } else {
+                confirm.set(true)
+              }
+            },
+            danger=true,
+          )
+        }
+      },
+    )
+  })
+}
+
+fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
+  let url_field = ui::Field::new()
+  let _ = pop.gap(view::Live::Is(12.0))
+  let _ = hrow(pop, 8.0, fn(h : view::View) -> Unit {
+    let _ = label(h, "安装新 Mod", size=15.0, weight=700).grow(view::Live::Is(1.0))
+    let _ = lg::liquid_badge_node(
+      h,
+      fn() { if s.install_step.get() == 1 { "步骤 1 / 2" } else { "步骤 2 / 2" } },
+      tone=lg::LiquidTone::Accent,
+    )
+  })
+  divider(pop)
+  let _ = pop.pick(fn() { s.install_step.get() }, fn(st : view::View, step : Int) -> Unit {
+    let _ = st.gap(view::Live::Is(12.0))
+    if step == 1 {
+      let _ = st.box(fn(zone : view::View) -> Unit {
+        let _ = zone
+          .height(view::Live::Is(Some(100.0)))
+          .radius(view::Live::Is(12.0))
+          .ground(view::Live::By(well_bg))
+          .lines_up(view::Live::Is(Some(view::Along::Middle)))
+          .lies_along(view::Live::Is(view::Lies::Middle))
+          .gap(view::Live::Is(10.0))
+        let _ = label_by(
+          zone,
+          fn() { if s.busy.get() == "planning" { "正在分析压缩包目录结构…" } else { "选择本地 .zip / .7z 压缩包" } },
+          size=13.5,
+          weight=600,
+        )
+        let _ = inline_pill(zone, fn() { "选择压缩包" }, fn() {
+          match hostapi::pick(hostapi::PickKind::Files, false) {
+            Some(pk) =>
+              match pk.files() {
+                Some(files) => if files.length() > 0 { s.plan_bytes(files[0].name, files[0].bytes) }
+                None => ()
+              }
+            None => ()
+          }
+        })
+      })
+      let _ = hrow(st, 8.0, fn(u : view::View) -> Unit {
+        let _ = lg::liquid_search_bar_node(
+          u,
+          url_field,
+          placeholder="粘贴 GitHub Releases 链接…",
+          label=fn() { "Mod 链接" },
+          flat=true,
+          submitted=fn(t : String) -> Unit { s.plan_url(t) },
+        ).grow(view::Live::Is(1.0))
+        let _ = inline_pill(u, fn() { "解析" }, fn() { s.plan_url(url_field.text()) }, tint=c_cobalt)
+      })
+    } else {
+      let get_plan = fn() -> model::Plan {
+        match s.plan.get() {
+          Some(p) => p
+          None => model::Plan::{
+            id: "", archive: "", name: "", version: "", target: "", replaces: "",
+            adapted: false, mappings: [], conflicts: [], skipped: [], warnings: [], files: 0,
+          }
+        }
+      }
+      let _ = hrow(st, 8.0, fn(t : view::View) -> Unit {
+        let _ = label_by(t, fn() { get_plan().archive }, size=14.0, weight=700).grow(view::Live::Is(1.0))
+        let _ = lg::liquid_badge_node(t, fn() { "适用 \{get_plan().target}" }, tone=lg::LiquidTone::Success)
+      })
+      let _ = st.box(fn(bx : view::View) -> Unit {
+        let _ = bx.radius(view::Live::Is(12.0)).ground(view::Live::By(well_bg)).padding(view::Live::Is((12.0, 10.0, 12.0, 10.0))).gap(view::Live::Is(6.0))
+        bx.each(
+          fn() { get_plan().mappings },
+          fn(mp : model::PlanMapping) -> String { mp.to },
+          fn(slot : view::View, m_sig : signals::Signal[model::PlanMapping]) -> Unit {
+            let _ = label_by(slot, fn() { "\{m_sig.get().from}  →  \{m_sig.get().to} (\{m_sig.get().files} 文件)" }, size=12.0, ink=ink_secondary, wrap=true)
+          },
+        )
+      })
+      let _ = hrow(st, 8.0, fn(f : view::View) -> Unit {
+        let _ = inline_pill(f, fn() { "上一步" }, fn() { s.drop_plan() })
+        spacer(f)
+        let _ = inline_pill(
+          f,
+          fn() { if s.busy.get() == "installing" { "安装中…" } else { "确认安装" } },
+          fn() {
+            match s.plan.untracked() {
+              Some(pl) => s.install(pl.conflicts.length() > 0)
+              None => ()
+            }
+          },
+          tint=c_cobalt,
+        )
+      })
+    }
+  })
+}

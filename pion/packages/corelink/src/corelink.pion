@@ -1,0 +1,36 @@
+// Bridge to Rust bunker_core via C shim (`native/core_link.c`).
+
+extern "C" fn c_core_init(dir : Ptr, dir_len : Int64) -> Int = "pion_bunker_core_init"
+extern "C" fn c_core_send(
+  id : Int64,
+  json : Ptr,
+  json_len : Int64,
+  data : Ptr,
+  data_len : Int64,
+) -> Unit = "pion_bunker_core_send"
+extern "C" fn c_core_poll_has() -> Int = "pion_bunker_core_poll_has"
+extern "C" fn c_core_poll_json() -> Ptr = "pion_bunker_core_poll_json"
+
+pub fn init(data_dir : String) -> Bool {
+  c_core_init(str_data_ptr(data_dir), data_dir.length().to_int64()) == 0
+}
+
+pub fn call(id : Int64, json : String, data : Bytes) -> Unit {
+  c_core_send(
+    id,
+    str_data_ptr(json),
+    json.length().to_int64(),
+    bytes_data_ptr(data),
+    data.length().to_int64(),
+  )
+}
+
+pub fn poll_next() -> Option[String] {
+  if c_core_poll_has() == 0 {
+    return None
+  }
+  let p = c_core_poll_json()
+  let s = cstr_to_str(p)
+  ptr_free(p)
+  Some(s)
+}

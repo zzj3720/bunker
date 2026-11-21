@@ -1,0 +1,267 @@
+// Root Bunker shell modeled directly on AFK-surf/invar (`lg_pages/library.pion`):
+// - Smooth 18-layer optical wallpaper (Dark & Light)
+// - Clean transparent top nav bar with floating Liquid Glass capsules & Segmented control
+// - Open cardless workspace pages (Play / Mods / Snapshots / Config)
+// - Floating Liquid Glass popovers & toast
+
+import "headless"
+import "lg"
+import "model"
+import "signals"
+import "ui"
+import "view"
+
+pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
+  ui::set_tree_theme(lg::ui_theme)
+  let _ = root.box(fn(stage : view::View) -> Unit {
+    let _ = stage.grow(view::Live::Is(1.0)).clips(view::Live::Is(true))
+    bunker_backdrop(stage)
+
+    let _ = stage.box(fn(frame : view::View) -> Unit {
+      let _ = frame
+        .grow(view::Live::Is(1.0))
+        .min_height(view::Live::Is(Some(0.0)))
+        .padding(view::Live::Is((28.0, 20.0, 28.0, 24.0)))
+        .gap(view::Live::Is(24.0))
+
+      // ---- Top Floating Chrome (Instance Popover + Liquid Segmented Nav + Role Popover + Theme Toggle) ----
+      let _ = hrow(frame, 12.0, fn(top : view::View) -> Unit {
+        // 1. Instance Selector Popover Capsule
+        let _ = lg::liquid_popover_node(
+          top,
+          stage,
+          fn() { s.inst_open.get() },
+          fn(v : Bool) -> Unit {
+            s.inst_open.set(v)
+            if !v { s.inst_step.set(1) }
+          },
+          fn() { "切换 SPT 实例" },
+          fn(trig : view::View, _d : headless::Disclosure) -> Unit {
+            let _ = trig
+              .row(view::Live::Is(true))
+              .lines_up(view::Live::Is(Some(view::Along::Middle)))
+              .height(view::Live::Is(Some(42.0)))
+              .padding(view::Live::Is((16.0, 0.0, 14.0, 0.0)))
+              .gap(view::Live::Is(8.0))
+              .radius(view::Live::Is(21.0))
+              .shadow(view::Live::Is(lg::shadow_default))
+              .shadow_outside(view::Live::Is(true))
+              .glass(view::Live::By(fn() { Some(capsule_glass()) }))
+            let _ = label_by(
+              trig,
+              fn() {
+                match s.current_inst() {
+                  Some(i) => if i.name != "" { i.name } else { "Bunker" }
+                  None => "导入 SPT 实例"
+                }
+              },
+              size=14.0,
+              weight=600,
+            )
+            chevron_down_icon(trig, ink_secondary)
+          },
+          fn() { "实例切换与导入" },
+          fn(pop : view::View) -> Unit { instance_popover_body(pop, s) },
+          placement=headless::Placement::BelowStart,
+          width=360.0,
+        )
+
+        spacer(top)
+
+        // 2. Center Liquid Glass Segmented Navigation
+        let _ = lg::liquid_segmented_node(
+          top,
+          fn() { ["启动", "Mod", "存档", "配置"] },
+          fn() { model::page_index(s.page.get()) },
+          fn(i : Int) -> Unit { s.page.set(model::page_from_index(i)) },
+          width=320.0,
+          height=42.0,
+        )
+
+        spacer(top)
+
+        // 3. Right Role Selector Popover Capsule + Light/Dark Icon Button
+        let _ = lg::liquid_popover_node(
+          top,
+          stage,
+          fn() { s.role_open.get() },
+          fn(v : Bool) -> Unit { s.role_open.set(v) },
+          fn() { "切换角色" },
+          fn(trig : view::View, _d : headless::Disclosure) -> Unit {
+            let _ = trig
+              .row(view::Live::Is(true))
+              .lines_up(view::Live::Is(Some(view::Along::Middle)))
+              .height(view::Live::Is(Some(42.0)))
+              .padding(view::Live::Is((14.0, 0.0, 14.0, 0.0)))
+              .gap(view::Live::Is(8.0))
+              .radius(view::Live::Is(21.0))
+              .shadow(view::Live::Is(lg::shadow_default))
+              .shadow_outside(view::Live::Is(true))
+              .glass(view::Live::By(fn() { Some(capsule_glass()) }))
+            let _ = trig.box(fn(dot : view::View) -> Unit {
+              let _ = dot
+                .width(view::Live::Is(Some(8.0)))
+                .height(view::Live::Is(Some(8.0)))
+                .shrink(view::Live::Is(0.0))
+                .radius(view::Live::Is(4.0))
+                .ground(view::Live::By(fn() {
+                  let st = s.server.get().state
+                  if st == "ready" { c_green } else if st == "starting" { c_amber } else if st == "crashed" { c_red } else { ink_muted() }
+                }))
+            })
+            let _ = label_by(
+              trig,
+              fn() {
+                match s.current_character() {
+                  Some(c) => "\{c.shown()} · Lv.\{c.level}"
+                  None => "选择角色"
+                }
+              },
+              size=13.5,
+              weight=600,
+            )
+            chevron_down_icon(trig, ink_secondary)
+          },
+          fn() { "角色切换" },
+          fn(pop : view::View) -> Unit { role_popover_body(pop, s) },
+          placement=headless::Placement::BelowEnd,
+          width=300.0,
+        )
+
+        let _ = lg::liquid_icon_button_node(
+          top,
+          fn() { "切换深浅外观" },
+          fn(ic : view::View, ink : () -> Int64) -> Unit { sun_moon_icon(ic, ink) },
+          fn() { lg::set_dark(Some(!lg::is_dark())) },
+          size=lg::LiquidButtonSize::Regular,
+        )
+      })
+
+      // ---- Active Page Body ----
+      let _ = frame.pick(fn() { model::page_index(s.page.get()) }, fn(body : view::View, idx : Int) -> Unit {
+        let _ = body.grow(view::Live::Is(1.0)).min_height(view::Live::Is(Some(0.0)))
+        if idx == 1 {
+          mods_page(body, stage, s)
+        } else if idx == 2 {
+          snapshots_page(body, s)
+        } else if idx == 3 {
+          config_page(body, s)
+        } else {
+          play_page(body, stage, s)
+        }
+      })
+    })
+
+    // ---- Floating Liquid Toast ----
+    let _ = stage.box(fn(toast_layer : view::View) -> Unit {
+      let _ = toast_layer
+        .over(view::Live::Is(true))
+        .points(view::Live::Is(false))
+        .lines_up(view::Live::Is(Some(view::Along::Middle)))
+        .lies_along(view::Live::Is(view::Lies::End))
+        .padding(view::Live::Is((0.0, 0.0, 0.0, 22.0)))
+      let _ = lg::liquid_toast_node(
+        toast_layer,
+        fn() { match s.toast.get() { Some(_) => true; None => false } },
+        fn() { match s.toast.get() { Some(t) => t.text; None => "" } },
+        status=lg::LiquidStatus::Info,
+        on_dismiss=fn() { s.dismiss_toast() },
+      )
+    })
+  })
+}
+
+fn instance_popover_body(pop : view::View, s : model::Store) -> Unit {
+  let path_field = ui::Field::new()
+  let _ = pop.gap(view::Live::Is(10.0))
+  let _ = hrow(pop, 8.0, fn(h : view::View) -> Unit {
+    let _ = label_by(h, fn() { if s.inst_step.get() == 1 { "已管理 SPT 实例" } else { "导入新 SPT 实例" } }, size=14.5, weight=700).grow(view::Live::Is(1.0))
+    let _ = h.pick(fn() { s.inst_step.get() }, fn(slot : view::View, st : Int) -> Unit {
+      if st == 1 {
+        let _ = inline_pill(slot, fn() { "导入新实例" }, fn() { s.open_import() }, tint=c_cobalt)
+      } else {
+        let _ = inline_pill(slot, fn() { "返回列表" }, fn() { s.inst_step.set(1) })
+      }
+    })
+  })
+  divider(pop)
+  let _ = pop.pick(fn() { s.inst_step.get() }, fn(body : view::View, st : Int) -> Unit {
+    let _ = body.gap(view::Live::Is(6.0))
+    if st == 1 {
+      body.each(
+        fn() { s.instances.get() },
+        fn(i : model::Inst) -> String { i.root },
+        fn(slot : view::View, inst_sig : signals::Signal[model::Inst]) -> Unit {
+          let _ = headless::button(
+            slot,
+            fn() { inst_sig.get().name },
+            fn(_e) -> Unit { s.select_instance(inst_sig.untracked().root) },
+            fn(r : view::View, btn : headless::Button) -> Unit {
+              let active = fn() -> Bool { s.current.get() == inst_sig.get().root }
+              let _ = r
+                .padding(view::Live::Is((10.0, 9.0, 10.0, 9.0)))
+                .radius(view::Live::Is(12.0))
+                .gap(view::Live::Is(2.0))
+                .ground(view::Live::By(fn() {
+                  if active() { row_selected_bg() } else if btn.hovered() { row_hover_bg() } else { lg::clear }
+                }))
+              let _ = hrow(r, 6.0, fn(top : view::View) -> Unit {
+                let _ = label_by(top, fn() { inst_sig.get().name }, size=14.0, weight=600).grow(view::Live::Is(1.0))
+                let _ = lg::liquid_badge_node(top, fn() { "SPT \{inst_sig.get().spt_version}" }, tone=lg::LiquidTone::Success)
+              })
+              let _ = label_by(r, fn() { inst_sig.get().root }, size=11.5, ink=ink_muted)
+            },
+          )
+        },
+      )
+    } else {
+      let _ = hrow(body, 8.0, fn(u : view::View) -> Unit {
+        let _ = lg::liquid_search_bar_node(
+          u,
+          path_field,
+          placeholder="输入目录路径，如 C:\\Games\\SPT-4.1.6",
+          label=fn() { "实例路径" },
+          flat=true,
+          edited=fn(p : String) -> Unit { s.probe_path_now(p) },
+          submitted=fn(p : String) -> Unit { s.add_instance(p) },
+        ).grow(view::Live::Is(1.0))
+        let _ = inline_pill(u, fn() { "导入" }, fn() { s.add_instance(path_field.text()) }, tint=c_cobalt)
+      })
+    }
+  })
+}
+
+fn role_popover_body(pop : view::View, s : model::Store) -> Unit {
+  let _ = pop.gap(view::Live::Is(10.0))
+  let _ = label(pop, "选择出战角色", size=14.5, weight=700)
+  divider(pop)
+  pop.each(
+    fn() { s.characters.get() },
+    fn(c : model::Character) -> String { c.username },
+    fn(slot : view::View, c_sig : signals::Signal[model::Character]) -> Unit {
+      let _ = headless::button(
+        slot,
+        fn() { c_sig.get().shown() },
+        fn(_e) -> Unit {
+          s.character.set(c_sig.untracked().username)
+          s.role_open.set(false)
+        },
+        fn(r : view::View, btn : headless::Button) -> Unit {
+          let active = fn() -> Bool { s.character.get() == c_sig.get().username }
+          let _ = r
+            .padding(view::Live::Is((10.0, 9.0, 10.0, 9.0)))
+            .radius(view::Live::Is(12.0))
+            .gap(view::Live::Is(2.0))
+            .ground(view::Live::By(fn() {
+              if active() { row_selected_bg() } else if btn.hovered() { row_hover_bg() } else { lg::clear }
+            }))
+          let _ = hrow(r, 6.0, fn(top : view::View) -> Unit {
+            let _ = label_by(top, fn() { c_sig.get().shown() }, size=14.0, weight=600).grow(view::Live::Is(1.0))
+            let _ = lg::liquid_badge_node(top, fn() { "\{c_sig.get().side} Lv.\{c_sig.get().level}" }, tone=lg::LiquidTone::Accent)
+          })
+          let _ = label_by(r, fn() { "\{c_sig.get().edition} · \{model::roubles_text(c_sig.get().roubles)}" }, size=12.0, ink=ink_muted)
+        },
+      )
+    },
+  )
+}

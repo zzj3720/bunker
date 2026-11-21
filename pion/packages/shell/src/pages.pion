@@ -1,0 +1,214 @@
+// Snapshots & Config Editor pages — open AFK Liquid Glass layout (zero cards).
+
+import "headless"
+import "lg"
+import "model"
+import "signals"
+import "ui"
+import "view"
+
+fn snap_kind_label(k : String) -> String {
+  if k == "manual" { "手动备份" } else if k == "before_install" { "装 Mod 前" } else if k == "before_restore" { "回滚前" } else { k }
+}
+
+pub fn snapshots_page(parent : view::View, s : model::Store) -> Unit {
+  let note_field = ui::Field::new()
+  let _ = parent.box(fn(col : view::View) -> Unit {
+    let _ = col.grow(view::Live::Is(1.0)).min_height(view::Live::Is(Some(0.0))).gap(view::Live::Is(20.0))
+
+    // Top floating Liquid Glass bar
+    let _ = hrow(col, 12.0, fn(bar : view::View) -> Unit {
+      let _ = lg::liquid_text_field_node(
+        bar,
+        note_field,
+        placeholder="输入快照备注（例如：实验室撤离前、更新 Mod 前）…",
+        clearable=true,
+        submitted=fn(t : String) -> Unit {
+          s.snapshot(if model::str_trim(t) == "" { "手动备份" } else { t })
+          note_field.set("")
+        },
+      ).grow(view::Live::Is(1.0))
+      let _ = lg::liquid_button_node(
+        bar,
+        fn() { "立即备份存档" },
+        fn() {
+          let t = note_field.text()
+          s.snapshot(if model::str_trim(t) == "" { "手动备份" } else { t })
+          note_field.set("")
+        },
+        tint=c_cobalt,
+      )
+    })
+
+    // Open chronological snapshot list
+    let _ = col.box(fn(list_wrap : view::View) -> Unit {
+      let _ = list_wrap.grow(view::Live::Is(1.0)).min_height(view::Live::Is(Some(0.0))).gap(view::Live::Is(6.0))
+      section_head(list_wrap, "存档快照历史", detail=fn() { "共 \{s.snapshots.get().length()} 份 · 回滚前自动保护当前存档" })
+      let _ = list_wrap.scrolls(view::Scroll::plain(), fn(sc : view::View) -> Unit {
+        let _ = sc.grow(view::Live::Is(1.0))
+        sc.show(fn() { s.snapshots.get().length() == 0 }, fn(empty : view::View) -> Unit {
+          let _ = empty.padding(view::Live::Is((0.0, 32.0, 0.0, 32.0))).lines_up(view::Live::Is(Some(view::Along::Middle)))
+          let _ = label(empty, "暂无存档快照。", size=14.0, ink=ink_muted)
+        })
+        sc.each(
+          fn() { s.snapshots.get() },
+          fn(sn : model::Snap) -> String { sn.id },
+          fn(slot : view::View, sn_sig : signals::Signal[model::Snap]) -> Unit {
+            let confirm_restore = signals::signal(false)
+            let _ = slot.box(fn(r : view::View) -> Unit {
+              let _ = r
+                .row(view::Live::Is(true))
+                .lines_up(view::Live::Is(Some(view::Along::Middle)))
+                .gap(view::Live::Is(14.0))
+                .padding(view::Live::Is((4.0, 14.0, 4.0, 14.0)))
+              let _ = r.box(fn(info : view::View) -> Unit {
+                let _ = info.grow(view::Live::Is(1.0)).gap(view::Live::Is(4.0))
+                let _ = hrow(info, 8.0, fn(top : view::View) -> Unit {
+                  let _ = label_by(top, fn() { if sn_sig.get().note != "" { sn_sig.get().note } else { sn_sig.get().id } }, size=15.0, weight=600)
+                  let _ = lg::liquid_badge_node(top, fn() { snap_kind_label(sn_sig.get().kind) }, tone=lg::LiquidTone::Accent)
+                })
+                let _ = label_by(
+                  info,
+                  fn() {
+                    let cur = sn_sig.get()
+                    "\{model::moment_text(cur.created_at, s.tz_offset_min)}  ·  \{cur.files} 个文件 (\{model::bytes_text(cur.bytes)})  ·  \{model::str_join(cur.characters, " · ")}"
+                  },
+                  size=12.5,
+                  ink=ink_secondary,
+                )
+              })
+              let _ = hrow(r, 8.0, fn(act : view::View) -> Unit {
+                let _ = inline_pill(
+                  act,
+                  fn() { if confirm_restore.get() { "确认回滚" } else { "回滚" } },
+                  fn() {
+                    if confirm_restore.untracked() {
+                      confirm_restore.set(false)
+                      s.restore(sn_sig.untracked().id)
+                    } else {
+                      confirm_restore.set(true)
+                    }
+                  },
+                  tint=c_cobalt,
+                )
+                let _ = inline_pill(act, fn() { "删除" }, fn() { s.delete_snapshot(sn_sig.untracked().id) }, danger=true)
+              })
+            })
+            divider(slot)
+          },
+        )
+      })
+    })
+  })
+}
+
+pub fn config_page(parent : view::View, s : model::Store) -> Unit {
+  let editor = ui::Field::new()
+  let dirty = signals::signal(false)
+  let _ = parent.box(fn(split : view::View) -> Unit {
+    let _ = split
+      .grow(view::Live::Is(1.0))
+      .row(view::Live::Is(true))
+      .gap(view::Live::Is(28.0))
+      .min_height(view::Live::Is(Some(0.0)))
+
+    split.reacts(fn() { s.config_text.get() }, fn(txt : String) -> Unit {
+      editor.set(txt)
+      dirty.set(false)
+    })
+
+    // Left: Open file list (using lg::liquid_list_node — authentic single-layer Liquid Glass sidebar list!)
+    let _ = split.box(fn(left : view::View) -> Unit {
+      let _ = left.width(view::Live::Is(Some(280.0))).shrink(view::Live::Is(0.0)).min_height(view::Live::Is(Some(0.0)))
+      let _ = lg::liquid_list_node(
+        left,
+        fn() {
+          let out : Array[lg::LiquidListRow] = []
+          for cf in s.configs.get() {
+            let p = cf.path
+            out.push(lg::LiquidListRow::new(
+              title=model::str_basename(cf.path),
+              subtitle=cf.owner,
+              value=model::bytes_text(cf.bytes),
+              active=s.config_path.get() == p,
+              on_press=fn() { s.open_config(p) },
+            ))
+          }
+          out
+        },
+        header=fn() { "配置文件 · \{s.configs.get().length()}" },
+        dividers=false,
+      )
+    })
+
+    // Right: Open Code Editor directly on wallpaper
+    let _ = split.box(fn(right : view::View) -> Unit {
+      let _ = right.grow(view::Live::Is(1.0)).basis(view::Live::Is(Some(0.0))).min_width(view::Live::Is(Some(0.0))).min_height(view::Live::Is(Some(0.0))).gap(view::Live::Is(12.0))
+      section_head(
+        right,
+        "配置编辑器",
+        detail=fn() {
+          let p = s.config_path.get()
+          if p != "" { p } else { "从左侧选择一个配置文件" }
+        },
+      )
+      let _ = right.box(fn(well : view::View) -> Unit {
+        let _ = well
+          .grow(view::Live::Is(1.0))
+          .min_height(view::Live::Is(Some(180.0)))
+          .radius(view::Live::Is(16.0))
+          .ground(view::Live::By(well_bg))
+          .padding(view::Live::Is((16.0, 14.0, 16.0, 14.0)))
+          .clips(view::Live::Is(true))
+        let ed = ui::field(
+          well,
+          editor,
+          placeholder="选择配置文件后在此编辑 JSON / JSONC / CFG…",
+          font_size=13.5,
+          max_lines=0,
+          enter_sends=false,
+          label="配置编辑器",
+          edited=fn(t : String) -> Unit {
+            dirty.set(t != s.config_text.untracked())
+            s.check_config(t)
+          },
+          color=ink_primary(),
+          placeholder_color=ink_muted(),
+          caret_color=lg::colors().accent,
+        )
+        let _ = ed.grow(view::Live::Is(1.0))
+      })
+      let _ = hrow(right, 10.0, fn(foot : view::View) -> Unit {
+        let _ = label_by(
+          foot,
+          fn() {
+            let chk = s.config_check.get()
+            if chk == "" { "保存时将自动校验语法并备份原文件" } else if chk == "ok" { "✓ 语法校验通过" } else { "✗ \{chk}" }
+          },
+          size=13.0,
+          ink=fn() {
+            let chk = s.config_check.get()
+            if chk == "ok" { c_green } else if chk == "" { ink_muted() } else { c_red }
+          },
+        ).grow(view::Live::Is(1.0))
+        let _ = lg::liquid_button_node(
+          foot,
+          fn() { "撤销修改" },
+          fn() {
+            editor.set(s.config_text.untracked())
+            dirty.set(false)
+            s.config_check.set("")
+          },
+          disabled=fn() { !dirty.get() },
+        )
+        let _ = lg::liquid_button_node(
+          foot,
+          fn() { "校验并保存" },
+          fn() { s.save_config(editor.text()) },
+          tint=c_cobalt,
+          disabled=fn() { s.config_path.get() == "" || !dirty.get() },
+        )
+      })
+    })
+  })
+}

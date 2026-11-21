@@ -1,0 +1,1137 @@
+import "hostapi"
+import "signals"
+
+pub struct Store {
+  pub page : signals::Signal[Page]
+  pub instances : signals::Signal[Array[Inst]]
+  pub current : signals::Signal[String]
+  pub characters : signals::Signal[Array[Character]]
+  pub character : signals::Signal[String]
+  pub mods : signals::Signal[Array[ModItem]]
+  pub mods_loaded : signals::Signal[Bool]
+  pub mods_query : signals::Signal[String]
+  pub mods_filter : signals::Signal[String]
+  pub snapshots : signals::Signal[Array[Snap]]
+  pub configs : signals::Signal[Array[ConfigFile]]
+  pub config_path : signals::Signal[String]
+  pub config_text : signals::Signal[String]
+  pub config_check : signals::Signal[String]
+  pub server : signals::Signal[ServerStatus]
+  pub log : signals::Signal[Array[LogLine]]
+  pub game : signals::Signal[String]
+  pub clean_cache : signals::Signal[Bool]
+  pub minimize : signals::Signal[Bool]
+  pub inst_open : signals::Signal[Bool]
+  pub inst_step : signals::Signal[Int]
+  pub found : signals::Signal[Array[Inst]]
+  pub probe_path : signals::Signal[String]
+  pub probe : signals::Signal[Option[Inst]]
+  pub role_open : signals::Signal[Bool]
+  pub install_open : signals::Signal[Bool]
+  pub install_step : signals::Signal[Int]
+  pub plan : signals::Signal[Option[Plan]]
+  pub gate_open : signals::Signal[Bool]
+  pub gate_step : signals::Signal[Int]
+  pub busy : signals::Signal[String]
+  pub toast : signals::Signal[Option[Toast]]
+  pub tz_offset_min : Int
+  send_fn : (Int64, String, Bytes) -> Unit
+  mut next_id : Int
+  pending : Map[Int, (Bool, hostapi::JsonValue) -> Unit]
+}
+
+pub fn Store::new(
+  send : (Int64, String, Bytes) -> Unit,
+  tz_offset_min~ : Int = 480,
+) -> Store {
+  Store::{
+    page: signals::signal(Page::Play),
+    instances: signals::signal_by([], fn(_a, _b) { false }),
+    current: signals::signal(""),
+    characters: signals::signal_by([], fn(_a, _b) { false }),
+    character: signals::signal(""),
+    mods: signals::signal_by([], fn(_a, _b) { false }),
+    mods_loaded: signals::signal(false),
+    mods_query: signals::signal(""),
+    mods_filter: signals::signal("all"),
+    snapshots: signals::signal_by([], fn(_a, _b) { false }),
+    configs: signals::signal_by([], fn(_a, _b) { false }),
+    config_path: signals::signal(""),
+    config_text: signals::signal(""),
+    config_check: signals::signal(""),
+    server: signals::signal(server_unknown),
+    log: signals::signal_by([], fn(_a, _b) { false }),
+    game: signals::signal("idle"),
+    clean_cache: signals::signal(true),
+    minimize: signals::signal(false),
+    inst_open: signals::signal(false),
+    inst_step: signals::signal(1),
+    found: signals::signal_by([], fn(_a, _b) { false }),
+    probe_path: signals::signal(""),
+    probe: signals::signal_by(None, fn(_a, _b) { false }),
+    role_open: signals::signal(false),
+    install_open: signals::signal(false),
+    install_step: signals::signal(1),
+    plan: signals::signal_by(None, fn(_a, _b) { false }),
+    gate_open: signals::signal(false),
+    gate_step: signals::signal(1),
+    busy: signals::signal(""),
+    toast: signals::signal_by(None, fn(_a, _b) { false }),
+    tz_offset_min,
+    send_fn: send,
+    next_id: 1,
+    pending: Map::new(),
+  }
+}
+
+pub fn Store::say(self : Store, text : String, bad~ : Bool = false) -> Unit {
+  self.toast.set(Some(Toast::{ text, bad }))
+}
+
+pub fn Store::dismiss_toast(self : Store) -> Unit {
+  self.toast.set(None)
+}
+
+fn Store::inst_arg(self : Store) -> (String, hostapi::JsonValue) {
+  ("instance", hostapi::JsonValue::JString(self.current.untracked()))
+}
+
+pub fn Store::ask(
+  self : Store,
+  op : String,
+  args : Array[(String, hostapi::JsonValue)],
+  on_reply : (Bool, hostapi::JsonValue) -> Unit,
+  data~ : Bytes = Bytes::new(0),
+) -> Unit {
+  let id = self.next_id
+  self.next_id = id + 1
+  self.pending.set(id, on_reply)
+  let pairs : Array[(String, hostapi::JsonValue)] = [("op", hostapi::JsonValue::JString(op))]
+  for a in args {
+    pairs.push(a)
+  }
+  let body = jobj_of(pairs)
+  (self.send_fn)(id.to_int64(), hostapi::json_stringify(body), data)
+}
+
+pub fn Store::run(
+  self : Store,
+  method : String,
+  args : Array[(String, hostapi::JsonValue)],
+  on_ok : (hostapi::JsonValue) -> Unit,
+) -> Unit {
+  self.ask(method, args, fn(good : Bool, v : hostapi::JsonValue) -> Unit {
+    if good {
+      on_ok(v)
+    } else {
+      let msg = match v {
+        hostapi::JsonValue::JString(s) => s
+        _ => "操作失败"
+      }
+      self.say(msg, bad=true)
+    }
+  })
+}
+
+pub fn Store::on_message(self : Store, raw : String) -> Unit {
+  match hostapi::json_parse(raw) {
+    None => ()
+    Some(j) => {
+      let id = jint(j, "id")
+      if id > 0 {
+        match self.pending.get(id) {
+          Some(cb) => {
+            self.pending.remove(id)
+            if jbool(j, "ok") {
+              cb(true, jget(j, "data"))
+            } else {
+              cb(false, jget(j, "error"))
+            }
+          }
+          None => ()
+        }
+        return
+      }
+      let ev = jstr(j, "ev")
+      if ev != "" {
+        self.on_event(ev, j)
+      }
+    }
+  }
+}
+
+fn Store::on_event(self : Store, ev : String, j : hostapi::JsonValue) -> Unit {
+  let root = self.current.untracked()
+  if ev == "server" {
+    let st = jget(j, "status")
+    if jstr(st, "instance") == root {
+      let s = ServerStatus::from_json(st)
+      self.server.set(s)
+      if s.state == "running" {
+        self.load_characters()
+      }
+    }
+  } else if ev == "log" {
+    if jstr(j, "instance") == root {
+      let line = LogLine::from_json(jget(j, "line"))
+      let prev = self.log.untracked()
+      let next : Array[LogLine] = []
+      let start = if prev.length() >= 400 { prev.length() - 399 } else { 0 }
+      let mut i = start
+      while i < prev.length() {
+        next.push(prev[i])
+        i += 1
+      }
+      next.push(line)
+      self.log.set(next)
+      let cur_s = self.server.untracked()
+      self.server.set(ServerStatus::{
+        state: cur_s.state,
+        pid: cur_s.pid,
+        port: cur_s.port,
+        started_at: cur_s.started_at,
+        ready_at: cur_s.ready_at,
+        warns: jint(j, "warns"),
+        errors: jint(j, "errors"),
+        message: cur_s.message,
+      })
+    }
+  } else if ev == "game" {
+    let st = jstr(j, "state")
+    if st != "" {
+      self.game.set(st)
+    }
+  }
+}
+
+pub fn Store::boot(self : Store, data_dir~ : String = "") -> Unit {
+  self.run("init", [("data_dir", hostapi::JsonValue::JString(data_dir))], fn(_v) {
+    self.load_settings()
+    self.load_instances(then=fn() { self.load_current() })
+  })
+}
+
+pub fn Store::load_settings(self : Store) -> Unit {
+  self.run("settings.get", [], fn(v) {
+    self.clean_cache.set(jbool(v, "clean_cache"))
+    self.minimize.set(jbool(v, "minimize"))
+  })
+}
+
+pub fn Store::load_instances(self : Store, then~ : () -> Unit = fn() { () }) -> Unit {
+  self.run("instances.list", [], fn(v) {
+    let list : Array[Inst] = []
+    for item in jarr(v, "instances") {
+      list.push(Inst::from_json(item))
+    }
+    self.instances.set(list)
+    let cur = jstr(v, "current")
+    if cur != "" {
+      self.current.set(cur)
+    } else if list.length() > 0 {
+      self.current.set(list[0].root)
+    }
+    then()
+  })
+}
+
+pub fn Store::load_current(self : Store) -> Unit {
+  if self.current.untracked() == "" {
+    return
+  }
+  self.load_server()
+  self.load_characters()
+  self.load_mods()
+  self.load_snapshots()
+  self.load_configs()
+}
+
+pub fn Store::load_server(self : Store) -> Unit {
+  self.run("server.status", [self.inst_arg()], fn(v) {
+    self.server.set(ServerStatus::from_json(v))
+  })
+}
+
+pub fn Store::load_characters(self : Store) -> Unit {
+  self.run("profiles.list", [self.inst_arg()], fn(v) {
+    let list : Array[Character] = []
+    match v {
+      hostapi::JsonValue::JArray(xs) => {
+        for x in xs {
+          list.push(Character::from_json(x))
+        }
+      }
+      _ => {
+        for x in jarr(v, "characters") {
+          list.push(Character::from_json(x))
+        }
+      }
+    }
+    self.characters.set(list)
+    let cur = self.character.untracked()
+    let mut exists = false
+    for c in list {
+      if c.username == cur {
+        exists = true
+        break
+      }
+    }
+    if !exists {
+      if list.length() > 0 {
+        self.character.set(list[0].username)
+      } else {
+        self.character.set("")
+      }
+    }
+  })
+}
+
+pub fn Store::load_mods(self : Store) -> Unit {
+  self.run("mods.list", [self.inst_arg()], fn(v) {
+    let list : Array[ModItem] = []
+    match v {
+      hostapi::JsonValue::JArray(xs) => {
+        for x in xs {
+          list.push(ModItem::from_json(x))
+        }
+      }
+      _ => {
+        for x in jarr(v, "mods") {
+          list.push(ModItem::from_json(x))
+        }
+      }
+    }
+    self.mods.set(list)
+    self.mods_loaded.set(true)
+  })
+}
+
+pub fn Store::load_snapshots(self : Store) -> Unit {
+  self.run("snapshots.list", [self.inst_arg()], fn(v) {
+    let list : Array[Snap] = []
+    match v {
+      hostapi::JsonValue::JArray(xs) => {
+        for x in xs {
+          list.push(Snap::from_json(x))
+        }
+      }
+      _ => {
+        for x in jarr(v, "snapshots") {
+          list.push(Snap::from_json(x))
+        }
+      }
+    }
+    self.snapshots.set(list)
+  })
+}
+
+pub fn Store::load_configs(self : Store) -> Unit {
+  self.run("config.list", [self.inst_arg()], fn(v) {
+    let list : Array[ConfigFile] = []
+    match v {
+      hostapi::JsonValue::JArray(xs) => {
+        for x in xs {
+          list.push(ConfigFile::from_json(x))
+        }
+      }
+      _ => {
+        for x in jarr(v, "files") {
+          list.push(ConfigFile::from_json(x))
+        }
+      }
+    }
+    self.configs.set(list)
+  })
+}
+
+pub fn Store::select_instance(self : Store, root : String) -> Unit {
+  self.inst_open.set(false)
+  self.inst_step.set(1)
+  if root == self.current.untracked() {
+    return
+  }
+  self.run("instances.select", [("path", hostapi::JsonValue::JString(root))], fn(_) {
+    self.current.set(root)
+    self.mods.set([])
+    self.mods_loaded.set(false)
+    self.log.set([])
+    self.server.set(server_unknown)
+    self.config_path.set("")
+    self.load_instances()
+    self.load_current()
+  })
+}
+
+pub fn Store::open_import(self : Store) -> Unit {
+  self.inst_step.set(2)
+  self.probe.set(None)
+  self.run("instances.scan", [], fn(v) {
+    let list : Array[Inst] = []
+    match v {
+      hostapi::JsonValue::JArray(xs) => {
+        for x in xs {
+          list.push(Inst::from_json(x))
+        }
+      }
+      _ => ()
+    }
+    self.found.set(list)
+  })
+}
+
+pub fn Store::probe_path_now(self : Store, path : String) -> Unit {
+  self.probe_path.set(path)
+  if str_trim(path) == "" {
+    self.probe.set(None)
+    return
+  }
+  self.ask("instances.probe", [("path", hostapi::JsonValue::JString(path))], fn(good, v) {
+    if good && self.probe_path.untracked() == path {
+      self.probe.set(Some(Inst::from_json(v)))
+    }
+  })
+}
+
+pub fn Store::add_instance(self : Store, path : String) -> Unit {
+  self.run("instances.add", [("path", hostapi::JsonValue::JString(path))], fn(_) {
+    self.inst_open.set(false)
+    self.inst_step.set(1)
+    self.probe.set(None)
+    self.say("已导入实例：\{path}")
+    self.mods.set([])
+    self.mods_loaded.set(false)
+    self.log.set([])
+    self.load_instances(then=fn() { self.load_current() })
+  })
+}
+
+pub fn Store::set_setting(self : Store, key : String, on : Bool) -> Unit {
+  if key == "clean_cache" {
+    self.clean_cache.set(on)
+  } else {
+    self.minimize.set(on)
+  }
+  self.run("settings.set", [("values", jobj_of([(key, hostapi::JsonValue::JBool(on))]))], fn(_) { () })
+}
+
+pub fn Store::set_mod_enabled(self : Store, id : String, on : Bool) -> Unit {
+  let updated : Array[ModItem] = []
+  for m in self.mods.untracked() {
+    if m.id == id {
+      updated.push(m.with_enabled(on))
+    } else {
+      updated.push(m)
+    }
+  }
+  self.mods.set(updated)
+  self.ask(
+    "mods.set_enabled",
+    [self.inst_arg(), ("id", hostapi::JsonValue::JString(id)), ("enabled", hostapi::JsonValue::JBool(on))],
+    fn(good, v) {
+      if !good {
+        let msg = match v {
+          hostapi::JsonValue::JString(s) => s
+          _ => "操作失败"
+        }
+        self.say(msg, bad=true)
+      } else {
+        self.say(if on { "已启用" } else { "已安全禁用（文件暂存于 .bunker/disabled，可一键恢复）" })
+      }
+      self.load_mods()
+    },
+  )
+}
+
+pub fn Store::uninstall(self : Store, id : String) -> Unit {
+  let mut name = id
+  for m in self.mods.untracked() {
+    if m.id == id {
+      name = m.name
+      break
+    }
+  }
+  self.busy.set("uninstalling")
+  self.ask("mods.uninstall", [self.inst_arg(), ("id", hostapi::JsonValue::JString(id))], fn(good, v) {
+    self.busy.set("")
+    if good {
+      self.say("已卸载 \{name}（\{jint(v, "removed")} 个文件，零残留）")
+    } else {
+      let msg = match v {
+        hostapi::JsonValue::JString(s) => s
+        _ => "卸载失败"
+      }
+      self.say(msg, bad=true)
+    }
+    self.load_mods()
+    self.load_configs()
+  })
+}
+
+fn Store::planned(self : Store, good : Bool, v : hostapi::JsonValue) -> Unit {
+  self.busy.set("")
+  if good {
+    self.plan.set(Some(Plan::from_json(v)))
+    self.install_step.set(2)
+  } else {
+    let msg = match v {
+      hostapi::JsonValue::JString(s) => s
+      _ => "无法读取压缩包"
+    }
+    self.say(msg, bad=true)
+  }
+}
+
+pub fn Store::plan_bytes(self : Store, name : String, data : Bytes) -> Unit {
+  self.install_open.set(true)
+  self.busy.set("planning")
+  self.ask(
+    "mods.plan_bytes",
+    [self.inst_arg(), ("name", hostapi::JsonValue::JString(name))],
+    fn(good, v) { self.planned(good, v) },
+    data=data,
+  )
+}
+
+pub fn Store::plan_url(self : Store, url : String) -> Unit {
+  let clean = str_trim(url)
+  if clean == "" {
+    return
+  }
+  self.busy.set("planning")
+  self.ask(
+    "mods.plan_url",
+    [self.inst_arg(), ("url", hostapi::JsonValue::JString(clean))],
+    fn(good, v) { self.planned(good, v) },
+  )
+}
+
+pub fn Store::install(self : Store, overwrite : Bool) -> Unit {
+  match self.plan.untracked() {
+    None => ()
+    Some(p) => {
+      self.busy.set("installing")
+      self.ask(
+        "mods.install",
+        [
+          self.inst_arg(),
+          ("plan", hostapi::JsonValue::JString(p.id)),
+          ("overwrite", hostapi::JsonValue::JBool(overwrite)),
+        ],
+        fn(good, v) {
+          self.busy.set("")
+          if good {
+            self.install_open.set(false)
+            self.install_step.set(1)
+            self.plan.set(None)
+            self.say("已安装 \{p.name}（装前已自动快照存档）")
+            self.load_mods()
+            self.load_snapshots()
+            self.load_configs()
+          } else {
+            let msg = match v {
+              hostapi::JsonValue::JString(s) => s
+              _ => "安装失败"
+            }
+            self.say(msg, bad=true)
+          }
+        },
+      )
+    }
+  }
+}
+
+pub fn Store::drop_plan(self : Store) -> Unit {
+  match self.plan.untracked() {
+    Some(p) =>
+      self.ask("mods.cancel_plan", [self.inst_arg(), ("plan", hostapi::JsonValue::JString(p.id))], fn(_, _) { () })
+    None => ()
+  }
+  self.plan.set(None)
+  self.install_step.set(1)
+}
+
+pub fn Store::check_updates(self : Store) -> Unit {
+  self.busy.set("checking")
+  self.ask("mods.check_updates", [self.inst_arg()], fn(good, v) {
+    self.busy.set("")
+    if !good {
+      let msg = match v {
+        hostapi::JsonValue::JString(s) => s
+        _ => "检查更新失败"
+      }
+      self.say(msg, bad=true)
+      return
+    }
+    let ups = jarr(v, "updates")
+    let updated : Array[ModItem] = []
+    let mut checked = 0
+    for m in self.mods.untracked() {
+      if m.source_url != "" {
+        checked += 1
+      }
+      let mut latest = ""
+      for u in ups {
+        if jstr(u, "id") == m.id {
+          latest = jstr(u, "latest")
+          break
+        }
+      }
+      if latest != "" {
+        updated.push(m.with_update(latest))
+      } else {
+        updated.push(m)
+      }
+    }
+    self.mods.set(updated)
+    if ups.length() == 0 {
+      self.say("已检查 \{checked} 个可追踪来源的 Mod：都是最新版")
+    } else {
+      self.say("\{ups.length()} 个 Mod 有新版本")
+    }
+  })
+}
+
+pub fn Store::update_mod(self : Store, id : String) -> Unit {
+  for m in self.mods.untracked() {
+    if m.id == id {
+      self.install_open.set(true)
+      self.plan_url(m.source_url)
+      return
+    }
+  }
+}
+
+pub fn Store::incompatible(self : Store) -> Array[ModItem] {
+  let out : Array[ModItem] = []
+  for m in self.mods.get() {
+    if m.incompatible() {
+      out.push(m)
+    }
+  }
+  out
+}
+
+pub fn Store::incompatible_now(self : Store) -> Array[ModItem] {
+  let out : Array[ModItem] = []
+  for m in self.mods.untracked() {
+    if m.incompatible() {
+      out.push(m)
+    }
+  }
+  out
+}
+
+pub fn Store::disable_mods(self : Store, ids : Array[String], dependents : Bool) -> Unit {
+  if ids.length() == 0 {
+    return
+  }
+  self.busy.set("disabling")
+  let jids : Array[hostapi::JsonValue] = []
+  for id in ids {
+    jids.push(hostapi::JsonValue::JString(id))
+  }
+  self.ask(
+    "mods.disable",
+    [
+      self.inst_arg(),
+      ("ids", hostapi::JsonValue::JArray(jids)),
+      ("with_dependents", hostapi::JsonValue::JBool(dependents)),
+    ],
+    fn(good, v) {
+      self.busy.set("")
+      if good {
+        let n = jarr(v, "ids").length()
+        self.say("已安全禁用 \{n} 个 Mod（文件暂存于 .bunker/disabled，可一键恢复）")
+      } else {
+        let msg = match v {
+          hostapi::JsonValue::JString(s) => s
+          _ => "禁用失败"
+        }
+        self.say(msg, bad=true)
+      }
+      self.gate_step.set(1)
+      self.load_mods()
+    },
+  )
+}
+
+pub fn Store::fix_mods(self : Store, ids : Array[String]) -> Unit {
+  if ids.length() == 0 {
+    return
+  }
+  self.busy.set("fixing")
+  let fixed : Array[String] = []
+  self.fix_mod_next(ids, 0, fixed)
+}
+
+fn Store::fix_mod_next(self : Store, ids : Array[String], i : Int, fixed : Array[String]) -> Unit {
+  if i >= ids.length() {
+    self.busy.set("")
+    self.load_mods()
+    self.load_snapshots()
+    self.load_configs()
+    if fixed.length() > 0 {
+      self.say(str_join(fixed, "；"))
+    }
+    return
+  }
+  self.ask("mods.fix_update", [self.inst_arg(), ("id", hostapi::JsonValue::JString(ids[i]))], fn(good, v) {
+    if good {
+      let ok = jstr(v, "status") != "incompatible"
+      let words = "已更新 \{jstr(v, "name")} v\{jstr(v, "from_version")} → v\{jstr(v, "version")}（适用 SPT \{jstr(v, "built_for")}）"
+      if ok {
+        fixed.push(words)
+      } else {
+        self.say("\{words}，但仍有不兼容的 DLL", bad=true)
+      }
+      self.fix_mod_next(ids, i + 1, fixed)
+    } else {
+      self.busy.set("")
+      let msg = match v {
+        hostapi::JsonValue::JString(s) => s
+        _ => "更新失败"
+      }
+      self.say(msg, bad=true)
+      self.load_mods()
+    }
+  })
+}
+
+pub fn Store::try_launch(self : Store) -> Unit {
+  if self.incompatible_now().length() > 0 {
+    self.gate_step.set(1)
+    self.gate_open.set(true)
+  } else {
+    self.launch()
+  }
+}
+
+pub fn Store::launch_past_gate(self : Store) -> Unit {
+  self.gate_open.set(false)
+  self.gate_step.set(1)
+  self.launch()
+}
+
+pub fn Store::snapshot(self : Store, note : String) -> Unit {
+  self.run("snapshots.create", [self.inst_arg(), ("note", hostapi::JsonValue::JString(note))], fn(v) {
+    self.say("已备份存档（\{jarr(v, "files").length()} 个存档文件）")
+    self.load_snapshots()
+  })
+}
+
+pub fn Store::restore(self : Store, id : String) -> Unit {
+  self.run("snapshots.restore", [self.inst_arg(), ("id", hostapi::JsonValue::JString(id))], fn(_) {
+    self.say("已回滚到 \{id}（回滚前的存档已自动备份）")
+    self.load_snapshots()
+    self.load_characters()
+  })
+}
+
+pub fn Store::delete_snapshot(self : Store, id : String) -> Unit {
+  self.run("snapshots.delete", [self.inst_arg(), ("id", hostapi::JsonValue::JString(id))], fn(_) {
+    self.load_snapshots()
+  })
+}
+
+pub fn Store::open_config(self : Store, path : String) -> Unit {
+  self.config_path.set(path)
+  self.config_check.set("")
+  self.run("config.read", [self.inst_arg(), ("path", hostapi::JsonValue::JString(path))], fn(v) {
+    if self.config_path.untracked() == path {
+      self.config_text.set(jstr(v, "text"))
+    }
+  })
+}
+
+pub fn Store::check_config(self : Store, text : String) -> Unit {
+  let path = self.config_path.untracked()
+  self.run(
+    "config.check",
+    [("path", hostapi::JsonValue::JString(path)), ("text", hostapi::JsonValue::JString(text))],
+    fn(v) {
+      self.config_check.set(if jbool(v, "ok") { "ok" } else { jstr(v, "error") })
+    },
+  )
+}
+
+pub fn Store::save_config(self : Store, text : String) -> Unit {
+  let path = self.config_path.untracked()
+  self.ask(
+    "config.save",
+    [
+      self.inst_arg(),
+      ("path", hostapi::JsonValue::JString(path)),
+      ("text", hostapi::JsonValue::JString(text)),
+    ],
+    fn(good, v) {
+      if good {
+        self.config_check.set("ok")
+        self.config_text.set(text)
+        self.say("已保存（原文件备份为 \{jstr(v, "backup")}）")
+      } else {
+        let e = match v {
+          hostapi::JsonValue::JString(s) => s
+          _ => "保存失败"
+        }
+        self.config_check.set(e)
+        self.say(e, bad=true)
+      }
+    },
+  )
+}
+
+pub fn Store::start_server(self : Store) -> Unit {
+  self.log.set([])
+  self.run("server.start", [self.inst_arg()], fn(v) {
+    self.server.set(ServerStatus::from_json(v))
+  })
+}
+
+pub fn Store::stop_server(self : Store) -> Unit {
+  self.run("server.stop", [self.inst_arg()], fn(v) {
+    self.server.set(ServerStatus::from_json(v))
+  })
+}
+
+pub fn Store::restart_server(self : Store) -> Unit {
+  self.log.set([])
+  self.run("server.restart", [self.inst_arg()], fn(v) {
+    self.server.set(ServerStatus::from_json(v))
+  })
+}
+
+pub fn Store::launch(self : Store) -> Unit {
+  let who = self.character.untracked()
+  if who == "" {
+    self.say("这个实例还没有角色：先在启动器里创建一个", bad=true)
+    return
+  }
+  self.game.set("launching")
+  self.ask(
+    "game.launch",
+    [
+      self.inst_arg(),
+      ("username", hostapi::JsonValue::JString(who)),
+      ("clean_cache", hostapi::JsonValue::JBool(self.clean_cache.untracked())),
+    ],
+    fn(good, v) {
+      if good {
+        self.game.set("running")
+        let cleaned = jget(v, "cleaned")
+        let c = jint(cleaned, "files")
+        self.say(if c > 0 { "游戏已启动（已清理 \{c} 个缓存文件）" } else { "游戏已启动" })
+      } else {
+        self.game.set("idle")
+        let msg = match v {
+          hostapi::JsonValue::JString(s) => s
+          _ => "启动失败"
+        }
+        self.say(msg, bad=true)
+      }
+    },
+  )
+}
+
+pub fn Store::current_inst(self : Store) -> Option[Inst] {
+  let root = self.current.get()
+  for i in self.instances.get() {
+    if i.root == root {
+      return Some(i)
+    }
+  }
+  None
+}
+
+pub fn Store::current_character(self : Store) -> Option[Character] {
+  let who = self.character.get()
+  for c in self.characters.get() {
+    if c.username == who {
+      return Some(c)
+    }
+  }
+  None
+}
+
+pub fn Store::mods_shown(self : Store) -> Array[ModItem] {
+  let q = str_lower(self.mods_query.get())
+  let f = self.mods_filter.get()
+  let out : Array[ModItem] = []
+  for m in self.mods.get() {
+    let by_filter = if f == "on" {
+      m.enabled
+    } else if f == "off" {
+      !m.enabled
+    } else if f == "update" {
+      m.update != ""
+    } else if f == "bad" {
+      m.incompatible()
+    } else {
+      true
+    }
+    if !by_filter {
+      continue
+    }
+    if q == "" || str_contains(str_lower(m.name), q) || str_contains(str_lower(m.author), q) {
+      out.push(m)
+    } else {
+      let mut hit = false
+      for rt in m.roots {
+        if str_contains(str_lower(rt), q) {
+          hit = true
+          break
+        }
+      }
+      if hit {
+        out.push(m)
+      }
+    }
+  }
+  out
+}
+
+/// Realistic demo store for offscreen GPU shots & visual review on macOS Studio.
+pub fn Store::demo() -> Store {
+  let s = Store::new(fn(_m, _j, _b) { () })
+  let inst1 = Inst::{
+    root: "C:\\Games\\SPT-4.1.6",
+    name: "SPT 4.1.6 主力档",
+    layout: "spt4",
+    spt_version: "4.1.6",
+    eft_version: "0.16.1.35392",
+    server_mods_dir: "SPT_Runtime\\user\\mods",
+    client_plugins_dir: "BepInEx\\plugins",
+    profiles_dir: "SPT_Runtime\\user\\profiles",
+    server_exe: "SPT_Runtime\\SPT.Server.exe",
+    client_exe: "EscapeFromTarkov.exe",
+    valid: true,
+    problems: [],
+  }
+  let inst2 = Inst::{
+    root: "D:\\Games\\SPT-4.0.1-Hardcore",
+    name: "SPT 4.0.1 硬核档",
+    layout: "spt4",
+    spt_version: "4.0.1",
+    eft_version: "0.15.5.33420",
+    server_mods_dir: "SPT\\user\\mods",
+    client_plugins_dir: "BepInEx\\plugins",
+    profiles_dir: "SPT\\user\\profiles",
+    server_exe: "SPT\\SPT.Server.exe",
+    client_exe: "EscapeFromTarkov.exe",
+    valid: true,
+    problems: [],
+  }
+  s.instances.set([inst1, inst2])
+  s.current.set(inst1.root)
+  s.characters.set([
+    Character::{
+      profile_id: "67a9f21c001",
+      username: "ZZJ_Main",
+      nickname: "白熊指挥官",
+      side: "Bear",
+      edition: "Unheard",
+      level: 42,
+      roubles: 14280000.0,
+      started: true,
+    },
+    Character::{
+      profile_id: "67a9f21c002",
+      username: "USEC_Zero",
+      nickname: "零起步",
+      side: "Usec",
+      edition: "Standard",
+      level: 11,
+      roubles: 845000.0,
+      started: true,
+    },
+  ])
+  s.character.set("ZZJ_Main")
+  s.server.set(ServerStatus::{
+    state: "ready",
+    pid: 18492,
+    port: 6969,
+    started_at: 1795280000000.0,
+    ready_at: 1795280004200.0,
+    warns: 1,
+    errors: 0,
+    message: "Server is running. Happy playing!",
+  })
+  s.log.set([
+    LogLine::{ n: 1, t: "04:12:01", level: "info", text: "[SPT] Server 4.1.6 starting on https://127.0.0.1:6969" },
+    LogLine::{ n: 2, t: "04:12:02", level: "info", text: "[Mod] Loaded DynamicMaps 1.3.0 (3-floor Interchange layers)" },
+    LogLine::{ n: 3, t: "04:12:02", level: "info", text: "[Mod] Loaded ZZJ-AmmoInfoPatch 1.2.0 (232 ammo boxes patched)" },
+    LogLine::{ n: 4, t: "04:12:03", level: "info", text: "[Mod] Loaded ZZJ-ChineseLocalePatch 1.1.0 (+32 quest strings)" },
+    LogLine::{ n: 5, t: "04:12:03", level: "warn", text: "[Mod] SAIN-AI-Core: optional Waypoints 1.7.2 recommended" },
+    LogLine::{ n: 6, t: "04:12:04", level: "info", text: "[SPT] Database imported in 3.1s — Server is ready. Happy playing!" },
+  ])
+  s.mods.set([
+    ModItem::{
+      id: "dynamic-maps",
+      name: "DynamicMaps",
+      author: "mpstark",
+      version: "1.3.0",
+      side: "client",
+      enabled: true,
+      managed: true,
+      roots: ["BepInEx/plugins/mpstark-dynamicmaps"],
+      loc_en: 0,
+      loc_ch: 0,
+      source_kind: "github",
+      source_url: "https://github.com/mpstark/DynamicMaps",
+      compat: "ok",
+      spt_range: "~4.1.0",
+      update: "",
+      dll_status: "compatible",
+      built_for: "4.1.6",
+      bad_dlls: [],
+      required_by: [],
+      requires: [],
+      fix_url: "",
+    },
+    ModItem::{
+      id: "sain",
+      name: "SAIN 2.0 AI Overhaul",
+      author: "Solarint",
+      version: "3.2.1",
+      side: "client",
+      enabled: true,
+      managed: true,
+      roots: ["BepInEx/plugins/SAIN"],
+      loc_en: 0,
+      loc_ch: 0,
+      source_kind: "github",
+      source_url: "https://github.com/Solarint/SAIN",
+      compat: "ok",
+      spt_range: "~4.1.0",
+      update: "3.2.4",
+      dll_status: "compatible",
+      built_for: "4.1.6",
+      bad_dlls: [],
+      required_by: [],
+      requires: [],
+      fix_url: "",
+    },
+    ModItem::{
+      id: "zzj-ammo-info",
+      name: "ZZJ-AmmoInfoPatch",
+      author: "zzj3720",
+      version: "1.2.0",
+      side: "server",
+      enabled: true,
+      managed: true,
+      roots: ["SPT_Runtime/user/mods/ZZJ-AmmoInfoPatch"],
+      loc_en: 232,
+      loc_ch: 232,
+      source_kind: "local",
+      source_url: "",
+      compat: "ok",
+      spt_range: "4.1.x",
+      update: "",
+      dll_status: "none",
+      built_for: "4.1.6",
+      bad_dlls: [],
+      required_by: [],
+      requires: [],
+      fix_url: "",
+    },
+    ModItem::{
+      id: "zzj-raid-xp-hud",
+      name: "ZZJ-RaidXpHud",
+      author: "zzj3720",
+      version: "1.0.0",
+      side: "client",
+      enabled: true,
+      managed: true,
+      roots: ["BepInEx/plugins/ZZJ-RaidXpHud"],
+      loc_en: 0,
+      loc_ch: 0,
+      source_kind: "local",
+      source_url: "",
+      compat: "ok",
+      spt_range: "4.1.x",
+      update: "",
+      dll_status: "compatible",
+      built_for: "4.1.6",
+      bad_dlls: [],
+      required_by: [],
+      requires: [],
+      fix_url: "",
+    },
+    ModItem::{
+      id: "amands-graphics",
+      name: "AmandsGraphics",
+      author: "Amands2Mello",
+      version: "1.7.4",
+      side: "client",
+      enabled: false,
+      managed: true,
+      roots: ["BepInEx/plugins/AmandsGraphics.dll"],
+      loc_en: 0,
+      loc_ch: 0,
+      source_kind: "github",
+      source_url: "https://github.com/Amands2Mello/AmandsGraphics",
+      compat: "ok",
+      spt_range: "~4.1.0",
+      update: "",
+      dll_status: "compatible",
+      built_for: "4.1.6",
+      bad_dlls: [],
+      required_by: [],
+      requires: [],
+      fix_url: "",
+    },
+  ])
+  s.mods_loaded.set(true)
+  s.snapshots.set([
+    Snap::{
+      id: "20261121-1915-manual",
+      note: "实验室满载撤离前手动备份",
+      kind: "manual",
+      created_at: 1795288500000.0,
+      files: 2,
+      bytes: 1843200.0,
+      characters: ["白熊指挥官 (Lv.42)", "零起步 (Lv.11)"],
+    },
+    Snap::{
+      id: "20261121-1830-mod",
+      note: "安装 ZZJ-AmmoInfoPatch 前自动快照",
+      kind: "before_install",
+      created_at: 1795285800000.0,
+      files: 2,
+      bytes: 1819400.0,
+      characters: ["白熊指挥官 (Lv.42)", "零起步 (Lv.11)"],
+    },
+    Snap::{
+      id: "20261120-2310-manual",
+      note: "立交桥三层地图调试完成",
+      kind: "manual",
+      created_at: 1795216200000.0,
+      files: 2,
+      bytes: 1752100.0,
+      characters: ["白熊指挥官 (Lv.41)"],
+    },
+  ])
+  s.configs.set([
+    ConfigFile::{
+      path: "BepInEx/plugins/mpstark-dynamicmaps/Maps/Interchange_TarkovDev/Interchange_TarkovDev.jsonc",
+      kind: "jsonc",
+      owner: "mpstark-dynamicmaps",
+      bytes: 14820.0,
+    },
+    ConfigFile::{
+      path: "SPT_Runtime/user/mods/ZZJ-ChineseLocalePatch/ch_patch.json",
+      kind: "json",
+      owner: "ZZJ-ChineseLocalePatch",
+      bytes: 9640.0,
+    },
+    ConfigFile::{
+      path: "BepInEx/config/com.zzj.raidxphud.cfg",
+      kind: "cfg",
+      owner: "ZZJ-RaidXpHud",
+      bytes: 1240.0,
+    },
+  ])
+  s.config_path.set("SPT_Runtime/user/mods/ZZJ-ChineseLocalePatch/ch_patch.json")
+  s.config_text.set("{\n  \"makeshotgunsgreatagain_q1_name\": \"海外枪托\",\n  \"makeshotgunsgreatagain_q2_name\": \"回头客\",\n  \"makeshotgunsgreatagain_q3_name\": \"静默交易\"\n}\n")
+  s.config_check.set("ok")
+  s
+}

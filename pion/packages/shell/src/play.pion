@@ -1,0 +1,459 @@
+// Play page: Open AFK Liquid Glass layout — zero content cards, real floating lg::liquid_button_node controls.
+
+import "headless"
+import "lg"
+import "model"
+import "signals"
+import "view"
+
+fn spt_of(s : model::Store) -> String {
+  match s.current_inst() {
+    Some(i) => if i.spt_version != "" { i.spt_version } else { "?" }
+    None => "?"
+  }
+}
+
+fn bad_words(m : model::ModItem, spt : String) -> String {
+  let parts : Array[String] = []
+  for b in m.bad_dlls {
+    parts.push("\{b.shown} (SPT \{b.built_for} ≠ \{spt})")
+  }
+  let dlls = model::str_join(parts, "、")
+  if m.required_by.length() == 0 {
+    dlls
+  } else {
+    "\{dlls} · 被 \{m.needed_by()} 依赖"
+  }
+}
+
+fn server_tone(st : String) -> lg::LiquidTone {
+  if st == "ready" {
+    lg::LiquidTone::Success
+  } else if st == "starting" {
+    lg::LiquidTone::Warning
+  } else if st == "crashed" {
+    lg::LiquidTone::Danger
+  } else {
+    lg::LiquidTone::Neutral
+  }
+}
+
+fn server_label(srv : model::ServerStatus) -> String {
+  if srv.state == "ready" {
+    "服务端就绪 :\{srv.port}"
+  } else if srv.state == "starting" {
+    "服务端启动中…"
+  } else if srv.state == "crashed" {
+    "服务端异常退出"
+  } else {
+    "服务端未启动"
+  }
+}
+
+pub fn play_page(parent : view::View, host : view::View, s : model::Store) -> Unit {
+  let _ = parent.box(fn(col : view::View) -> Unit {
+    let _ = col
+      .grow(view::Live::Is(1.0))
+      .min_height(view::Live::Is(Some(0.0)))
+      .gap(view::Live::Is(24.0))
+
+    // ---- Hero Bar (directly on wallpaper — big bold typography + floating Liquid Glass action buttons) ----
+    let _ = hrow(col, 16.0, fn(hero : view::View) -> Unit {
+      let _ = hero.box(fn(titles : view::View) -> Unit {
+        let _ = titles.grow(view::Live::Is(1.0)).gap(view::Live::Is(6.0))
+        let _ = hrow(titles, 12.0, fn(tline : view::View) -> Unit {
+          let _ = label_by(
+            tline,
+            fn() {
+              match s.current_inst() {
+                Some(i) => if i.name != "" { i.name } else { i.root }
+                None => "未选择 SPT 实例"
+              }
+            },
+            size=28.0,
+            weight=700,
+          )
+          let _ = tline.pick(fn() { s.server.get().state }, fn(slot : view::View, st : String) -> Unit {
+            let _ = lg::liquid_badge_node(
+              slot,
+              fn() { server_label(s.server.get()) },
+              tone=server_tone(st),
+              dot=true,
+            )
+          })
+        })
+        let _ = label_by(
+          titles,
+          fn() {
+            let inst_str = match s.current_inst() {
+              Some(i) => "SPT \{i.spt_version} · EFT \{i.eft_version} · \{i.root}"
+              None => "点击左上角导入你的 SPT 游戏目录"
+            }
+            match s.current_character() {
+              Some(c) => "\{c.shown()} (\{c.side} Lv.\{c.level} · \{model::roubles_text(c.roubles)})   ·   \{inst_str}"
+              None => inst_str
+            }
+          },
+          size=13.0,
+          ink=ink_secondary,
+        )
+      })
+
+      // Floating Liquid Glass action buttons (zero enclosing card -> zero glass-on-glass!)
+      let _ = hero.pick(fn() { s.server.get().state == "ready" || s.server.get().state == "starting" }, fn(slot : view::View, running : Bool) -> Unit {
+        let _ = slot.row(view::Live::Is(true)).gap(view::Live::Is(10.0))
+        if running {
+          let _ = lg::liquid_button_node(slot, fn() { "重启服务端" }, fn() { s.restart_server() })
+          let _ = lg::liquid_button_node(slot, fn() { "停止" }, fn() { s.stop_server() })
+        } else {
+          let _ = lg::liquid_button_node(slot, fn() { "仅启服务端" }, fn() { s.start_server() })
+        }
+      })
+
+      let _ = lg::liquid_popover_node(
+        hero,
+        host,
+        fn() { s.gate_open.get() },
+        fn(v : Bool) -> Unit {
+          s.gate_open.set(v)
+          if !v { s.gate_step.set(1) }
+        },
+        fn() { "一键启动游戏" },
+        fn(trig : view::View, _d : headless::Disclosure) -> Unit {
+          let _ = lg::liquid_button_node(
+            trig,
+            fn() {
+              if s.game.get() == "launching" {
+                "正在启动…"
+              } else if s.game.get() == "running" {
+                "游戏运行中"
+              } else {
+                "一键启动游戏"
+              }
+            },
+            fn() { s.try_launch() },
+            tint=c_cobalt,
+            disabled=fn() { s.game.get() == "launching" || s.current.get() == "" },
+          )
+        },
+        fn() { "启动前兼容拦截" },
+        fn(pop : view::View) -> Unit { gate_popover_body(pop, s) },
+        placement=headless::Placement::BelowEnd,
+        width=400.0,
+      )
+    })
+
+    // ---- Open 2-Column Workspace (Console left, Inspector right — zero cards) ----
+    let _ = col.box(fn(body : view::View) -> Unit {
+      let _ = body
+        .grow(view::Live::Is(1.0))
+        .row(view::Live::Is(true))
+        .gap(view::Live::Is(32.0))
+        .min_height(view::Live::Is(Some(0.0)))
+
+      // Left: Live Server Log
+      let _ = body.box(fn(left : view::View) -> Unit {
+        let _ = left
+          .grow(view::Live::Is(1.0))
+          .basis(view::Live::Is(Some(0.0)))
+          .min_width(view::Live::Is(Some(0.0)))
+          .min_height(view::Live::Is(Some(0.0)))
+          .gap(view::Live::Is(12.0))
+
+        let _ = hrow(left, 8.0, fn(hdr : view::View) -> Unit {
+          let _ = label(hdr, "服务端实时日志", size=12.5, weight=600, ink=ink_secondary).grow(view::Live::Is(1.0))
+          let _ = lg::liquid_badge_node(hdr, fn() { "\{s.log.get().length()} 行" }, tone=lg::LiquidTone::Neutral)
+          hdr.show(fn() { s.server.get().warns > 0 }, fn(wslot : view::View) -> Unit {
+            let _ = lg::liquid_badge_node(wslot, fn() { "\{s.server.get().warns} 警告" }, tone=lg::LiquidTone::Warning)
+          })
+          let _ = inline_pill(hdr, fn() { "清空" }, fn() { s.log.set([]) })
+        })
+        divider(left)
+
+        let _ = left.box(fn(well : view::View) -> Unit {
+          let _ = well
+            .grow(view::Live::Is(1.0))
+            .min_height(view::Live::Is(Some(160.0)))
+            .radius(view::Live::Is(16.0))
+            .ground(view::Live::By(well_bg))
+            .padding(view::Live::Is((16.0, 14.0, 16.0, 14.0)))
+            .clips(view::Live::Is(true))
+          let _ = well.scrolls(view::Scroll::plain(), fn(sc : view::View) -> Unit {
+            let _ = sc.grow(view::Live::Is(1.0)).gap(view::Live::Is(6.0))
+            sc.show(fn() { s.log.get().length() == 0 }, fn(empty : view::View) -> Unit {
+              let _ = label(empty, "服务端尚未输出日志。点击右上角「仅启服务端」或「一键启动游戏」开始运行。", size=13.0, ink=ink_muted, wrap=true)
+            })
+            sc.each(
+              fn() { s.log.get() },
+              fn(l : model::LogLine) -> Int { l.n },
+              fn(slot : view::View, line_sig : signals::Signal[model::LogLine]) -> Unit {
+                let _ = slot.box(fn(r : view::View) -> Unit {
+                  let _ = r.row(view::Live::Is(true)).gap(view::Live::Is(10.0)).lines_up(view::Live::Is(Some(view::Along::Start)))
+                  let _ = r.box(fn(tm : view::View) -> Unit {
+                    let _ = tm.words(view::Live::By(fn() { line_sig.get().t }), look=lg::words_at(12.0)).ink(view::Live::By(ink_muted))
+                  })
+                  let _ = r.box(fn(t : view::View) -> Unit {
+                    let _ = t
+                      .grow(view::Live::Is(1.0))
+                      .words(view::Live::By(fn() { line_sig.get().text }), look=lg::words_at(12.5, wrap=true))
+                      .ink(view::Live::By(fn() {
+                        let lv = line_sig.get().level
+                        if lv == "error" {
+                          c_red
+                        } else if lv == "warn" {
+                          c_amber
+                        } else {
+                          ink_primary()
+                        }
+                      }))
+                  })
+                })
+              },
+            )
+          })
+        })
+      })
+
+      // Right: Open Inspector (Deps Check + Toggles + Summary — zero cards)
+      let _ = body.box(fn(right : view::View) -> Unit {
+        let _ = right
+          .width(view::Live::Is(Some(300.0)))
+          .shrink(view::Live::Is(0.0))
+          .gap(view::Live::Is(22.0))
+
+        deps_check_section(right, s)
+
+        let _ = right.box(fn(opts : view::View) -> Unit {
+          let _ = opts.gap(view::Live::Is(14.0))
+          section_head(opts, "启动选项")
+          let _ = hrow(opts, 12.0, fn(t1 : view::View) -> Unit {
+            let _ = t1.box(fn(c : view::View) -> Unit {
+              let _ = c.grow(view::Live::Is(1.0)).gap(view::Live::Is(2.0))
+              let _ = label(c, "启动前清理缓存", size=14.0, weight=500)
+              let _ = label(c, "避免旧着色器与本地缓存冲突", size=12.0, ink=ink_muted)
+            })
+            let _ = lg::liquid_toggle_node(
+              t1,
+              fn() { s.clean_cache.get() },
+              fn(on : Bool) -> Unit { s.set_setting("clean_cache", on) },
+              fn() { "启动前清理缓存" },
+            )
+          })
+          let _ = hrow(opts, 12.0, fn(t2 : view::View) -> Unit {
+            let _ = t2.box(fn(c : view::View) -> Unit {
+              let _ = c.grow(view::Live::Is(1.0)).gap(view::Live::Is(2.0))
+              let _ = label(c, "启动后最小化", size=14.0, weight=500)
+              let _ = label(c, "减少后台资源占用", size=12.0, ink=ink_muted)
+            })
+            let _ = lg::liquid_toggle_node(
+              t2,
+              fn() { s.minimize.get() },
+              fn(on : Bool) -> Unit { s.set_setting("minimize", on) },
+              fn() { "启动后最小化" },
+            )
+          })
+        })
+
+        let _ = right.box(fn(ov : view::View) -> Unit {
+          let _ = ov.gap(view::Live::Is(10.0))
+          section_head(ov, "实例状态")
+          let _ = hrow(ov, 8.0, fn(r1 : view::View) -> Unit {
+            let _ = label(r1, "已启用 Mod", size=13.5, ink=ink_secondary).grow(view::Live::Is(1.0))
+            let _ = label_by(
+              r1,
+              fn() {
+                let all = s.mods.get()
+                let mut on = 0
+                for m in all { if m.enabled { on += 1 } }
+                "\{on} / \{all.length()}"
+              },
+              size=13.5,
+              weight=600,
+            )
+          })
+          let _ = hrow(ov, 8.0, fn(r2 : view::View) -> Unit {
+            let _ = label(r2, "最新快照", size=13.5, ink=ink_secondary).grow(view::Live::Is(1.0))
+            let _ = label_by(
+              r2,
+              fn() {
+                let snaps = s.snapshots.get()
+                if snaps.length() > 0 { model::moment_text(snaps[0].created_at, s.tz_offset_min) } else { "暂无" }
+              },
+              size=13.0,
+              weight=500,
+            )
+          })
+          let _ = hrow(ov, 8.0, fn(r3 : view::View) -> Unit {
+            let _ = label(r3, "配置文件", size=13.5, ink=ink_secondary).grow(view::Live::Is(1.0))
+            let _ = label_by(r3, fn() { "\{s.configs.get().length()} 个" }, size=13.0, weight=500)
+          })
+        })
+      })
+    })
+  })
+}
+
+fn deps_check_section(parent : view::View, s : model::Store) -> Unit {
+  let step = signals::signal(1)
+  let _ = parent.box(fn(sec : view::View) -> Unit {
+    let _ = sec.gap(view::Live::Is(10.0))
+    let _ = hrow(sec, 8.0, fn(h : view::View) -> Unit {
+      let _ = label(h, "依赖与版本校验", size=12.5, weight=600, ink=ink_secondary).grow(view::Live::Is(1.0))
+      let _ = h.pick(
+        fn() -> Int {
+          if s.incompatible().length() > 0 {
+            2
+          } else {
+            let mut mm = false
+            for m in s.mods.get() { if m.compat == "mismatch" { mm = true; break } }
+            if mm { 1 } else { 0 }
+          }
+        },
+        fn(slot : view::View, st : Int) -> Unit {
+          if st == 2 {
+            let _ = lg::liquid_badge_node(slot, fn() { "不兼容" }, tone=lg::LiquidTone::Danger, dot=true)
+          } else if st == 1 {
+            let _ = lg::liquid_badge_node(slot, fn() { "需处理" }, tone=lg::LiquidTone::Warning, dot=true)
+          } else {
+            let _ = lg::liquid_badge_node(slot, fn() { "通过" }, tone=lg::LiquidTone::Success, dot=true)
+          }
+        },
+      )
+    })
+    divider(sec)
+    let _ = label_by(
+      sec,
+      fn() {
+        let mods = s.mods.get()
+        let v = spt_of(s)
+        let bad = s.incompatible()
+        if bad.length() > 0 {
+          let lines : Array[String] = ["\{bad.length()} 个客户端 Mod 与 SPT \{v} 不兼容："]
+          for m in bad { lines.push(bad_words(m, v)) }
+          model::str_join(lines, "\n")
+        } else {
+          let mut checked = 0
+          let mut known = 0
+          for m in mods {
+            if m.dll_status == "compatible" { checked += 1 }
+            if m.compat == "ok" { known += 1 }
+          }
+          "共 \{mods.length()} 个 Mod：\{checked} 个客户端 DLL 匹配 SPT \{v}，\{known} 个服务端声明兼容。"
+        }
+      },
+      size=13.0,
+      ink=ink_secondary,
+      wrap=true,
+    )
+    let _ = sec.pick(
+      fn() { if s.incompatible().length() == 0 { 0 } else { step.get() } },
+      fn(act : view::View, st : Int) -> Unit {
+        let _ = act.row(view::Live::Is(true)).gap(view::Live::Is(8.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
+        if st == 1 {
+          let _ = inline_pill(
+            act,
+            fn() { "安全禁用" },
+            fn() {
+              let list = s.incompatible_now()
+              if model::dependents_of(list).length() == 0 {
+                let ids : Array[String] = []
+                for m in list { ids.push(m.id) }
+                s.disable_mods(ids, false)
+              } else {
+                step.set(2)
+              }
+            },
+            danger=true,
+          )
+          act.show(
+            fn() {
+              for m in s.incompatible() { if m.fix_url != "" { return true } }
+              false
+            },
+            fn(y : view::View) -> Unit {
+              let _ = inline_pill(
+                y,
+                fn() { "一键更新" },
+                fn() {
+                  let ids : Array[String] = []
+                  for m in s.incompatible_now() { if m.fix_url != "" { ids.push(m.id) } }
+                  s.fix_mods(ids)
+                },
+                tint=c_cobalt,
+              )
+            },
+          )
+        } else if st == 2 {
+          let _ = inline_pill(act, fn() { "取消" }, fn() { step.set(1) })
+          let _ = inline_pill(act, fn() { "仅禁用" }, fn() {
+            step.set(1)
+            let ids : Array[String] = []
+            for m in s.incompatible_now() { ids.push(m.id) }
+            s.disable_mods(ids, false)
+          })
+          let _ = inline_pill(act, fn() { "连同依赖" }, fn() {
+            step.set(1)
+            let ids : Array[String] = []
+            for m in s.incompatible_now() { ids.push(m.id) }
+            s.disable_mods(ids, true)
+          }, danger=true)
+        }
+      },
+    )
+  })
+}
+
+fn gate_popover_body(pop : view::View, s : model::Store) -> Unit {
+  let _ = pop.gap(view::Live::Is(12.0))
+  let _ = hrow(pop, 8.0, fn(h : view::View) -> Unit {
+    let _ = label(h, "启动前检测到不兼容 Mod", size=15.0, weight=700).grow(view::Live::Is(1.0))
+    let _ = lg::liquid_badge_node(h, fn() { "SPT \{spt_of(s)}" }, tone=lg::LiquidTone::Danger)
+  })
+  let _ = label_by(
+    pop,
+    fn() {
+      let v = spt_of(s)
+      let lines : Array[String] = []
+      for m in s.incompatible() { lines.push(bad_words(m, v)) }
+      if lines.length() == 0 { "所有不兼容项已处理，可以直接启动。" } else { model::str_join(lines, "\n") }
+    },
+    size=13.0,
+    ink=ink_secondary,
+    wrap=true,
+  )
+  let _ = pop.pick(fn() { s.gate_step.get() }, fn(f : view::View, st : Int) -> Unit {
+    let _ = f.row(view::Live::Is(true)).gap(view::Live::Is(8.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
+    if st == 1 {
+      let _ = inline_pill(f, fn() { "仍然启动" }, fn() { s.launch_past_gate() })
+      spacer(f)
+      let _ = inline_pill(
+        f,
+        fn() { "安全禁用" },
+        fn() {
+          let list = s.incompatible_now()
+          if model::dependents_of(list).length() == 0 {
+            let ids : Array[String] = []
+            for m in list { ids.push(m.id) }
+            s.disable_mods(ids, false)
+          } else {
+            s.gate_step.set(2)
+          }
+        },
+        danger=true,
+      )
+    } else {
+      let _ = inline_pill(f, fn() { "返回" }, fn() { s.gate_step.set(1) })
+      spacer(f)
+      let _ = inline_pill(f, fn() { "仅禁用" }, fn() {
+        let ids : Array[String] = []
+        for m in s.incompatible_now() { ids.push(m.id) }
+        s.disable_mods(ids, false)
+      })
+      let _ = inline_pill(f, fn() { "连同依赖" }, fn() {
+        let ids : Array[String] = []
+        for m in s.incompatible_now() { ids.push(m.id) }
+        s.disable_mods(ids, true)
+      }, danger=true)
+    }
+  })
+}
