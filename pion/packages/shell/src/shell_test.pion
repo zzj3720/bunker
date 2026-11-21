@@ -1,0 +1,40 @@
+// Automated Invar Liquid Glass audit gate tests (`lg::assert_no_nested_glass` + `unasked_faults`)
+// across all 4 Bunker pages in both Light and Dark themes.
+
+import "lg"
+import "model"
+import "ui"
+import "view"
+
+fn audit_page(page : model::Page, dark : Bool, label : String) -> Unit {
+  lg::set_dark(Some(dark))
+  let s = model::Store::demo()
+  s.page.set(page)
+  let t = ui::Tester::tree(
+    fn(root : view::View) -> Unit { bunker_app(root, s) },
+    width=1200.0,
+    height=760.0,
+    theme=lg::ui_theme,
+  )
+  lg::assert_no_nested_glass(t, label=label)
+}
+
+test "bunker play light & dark zero nested glass" {
+  audit_page(model::Page::Play, false, "bunker_play_light")
+  audit_page(model::Page::Play, true, "bunker_play_dark")
+}
+
+test "bunker mods light & dark zero nested glass" {
+  audit_page(model::Page::Mods, false, "bunker_mods_light")
+  audit_page(model::Page::Mods, true, "bunker_mods_dark")
+}
+
+test "bunker snapshots light & dark zero nested glass" {
+  audit_page(model::Page::Snapshots, false, "bunker_snapshots_light")
+  audit_page(model::Page::Snapshots, true, "bunker_snapshots_dark")
+}
+
+test "bunker config light & dark zero nested glass" {
+  audit_page(model::Page::Config, false, "bunker_config_light")
+  audit_page(model::Page::Config, true, "bunker_config_dark")
+}

@@ -1,7 +1,8 @@
-// macOS 27 Golden Gate Bunker shell:
-// - Edge-to-edge full-height sidebar (224px) with crisp 1px structural separation & colorful official 24-grid icons
-// - Cohesive transparent draggable top toolbar (.moves_window) with page title + window button group
-// - Pure neutral content canvas (#FFFFFF light / #141416 dark)
+// Bunker shell rewritten on latest AFK-surf/invar (41a457b2):
+// - 100% official `packages/lg` components per DESIGN.md & CATALOG.md (zero custom glass surfaces)
+// - macOS 27 Golden Gate edge-to-edge sidebar + neutral content canvas + lg::liquid_nav_bar_node top bar
+// - All popovers mounted on `root` (sibling after `stage`) so they always paint above sidebar & content
+// - Verified by `lg::assert_no_nested_glass` in `shell_test.pion` across all 4 pages in Light & Dark modes
 
 import "headless"
 import "hostapi"
@@ -36,9 +37,9 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
         .shrink(view::Live::Is(0.0))
         .ground(view::Live::By(sidebar_bg))
         .padding(view::Live::Is((14.0, 14.0, 14.0, 16.0)))
-        .gap(view::Live::Is(16.0))
+        .gap(view::Live::Is(14.0))
 
-      // Sidebar top: draggable brand header
+      // Draggable brand row
       let _ = side.box(fn(brand : view::View) -> Unit {
         let _ = brand
           .moves_window(view::Live::Is(true))
@@ -52,8 +53,7 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
         let _ = label(brand, "SPT", size=11.0, weight=600, ink=ink_muted)
       })
 
-      // Instance switcher (official lg::liquid_popover_node + lg::liquid_button_node)
-      // Mount popover on `root` (sibling AFTER `stage`) so it always paints above both sidebar and main content!
+      // Instance switcher (official lg::liquid_popover_node mounted on `root`, trigger = lg::liquid_button_node)
       let _ = lg::liquid_popover_node(
         side,
         root,
@@ -73,6 +73,8 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
               }
             },
             fn() { s.inst_open.set(!s.inst_open.untracked()) },
+            height=36.0,
+            pad_x=14.0,
             content=fn(c : view::View) -> Unit {
               let _ = c
                 .grow(view::Live::Is(1.0))
@@ -100,7 +102,7 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
         width=360.0,
       )
 
-      // Primary Navigation List (Golden Gate colorful semantic icons)
+      // Primary Navigation List (official AFK-surf/monoid 24-grid colorful semantic icons)
       let _ = side.box(fn(nav : view::View) -> Unit {
         let _ = nav.gap(view::Live::Is(4.0))
         sidebar_nav_item(nav, s, model::Page::Play, "启动", icon_play_data, c_cobalt, fn() { "" })
@@ -120,7 +122,7 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
 
       spacer(side)
 
-      // Sidebar Footer: Server status indicator + Light/Dark toggle
+      // Sidebar Footer: Server status indicator + Light/Dark toggle (small glass orb)
       let _ = hrow(side, 8.0, fn(foot : view::View) -> Unit {
         let _ = foot.padding(view::Live::Is((6.0, 0.0, 2.0, 0.0)))
         let _ = foot.box(fn(dot : view::View) -> Unit {
@@ -157,7 +159,7 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
           foot,
           fn() { "切换深浅外观" },
           fn(ic : view::View, ink : () -> Int64) -> Unit {
-            icon_node(ic, if lg::is_dark() { icon_sun_data } else { icon_moon_data }, 16.0, ink)
+            icon_node(ic, if lg::is_dark() { icon_sun_data } else { icon_moon_data }, 15.0, ink)
           },
           fn() { lg::set_dark(Some(!lg::is_dark())) },
           size=lg::LiquidButtonSize::Small,
@@ -165,12 +167,12 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
       })
     })
 
-    // Crisp 1px Golden Gate structural edge between sidebar and content
+    // Crisp 1px Golden Gate structural edge
     let _ = stage.box(fn(edge : view::View) -> Unit {
       let _ = edge.width(view::Live::Is(Some(1.0))).shrink(view::Live::Is(0.0)).ground(view::Live::By(sidebar_edge))
     })
 
-    // ======== 2. Right Content Canvas (Cohesive Top Toolbar + Page Content) ========
+    // ======== 2. Right Content Canvas ========
     let _ = stage.box(fn(main_col : view::View) -> Unit {
       let _ = main_col
         .grow(view::Live::Is(1.0))
@@ -178,35 +180,34 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
         .min_width(view::Live::Is(Some(0.0)))
         .min_height(view::Live::Is(Some(0.0)))
 
-      // Cohesive 52px draggable top bar (page title left, compact window controls right)
-      let _ = main_col.box(fn(bar : view::View) -> Unit {
-        let _ = bar
-          .moves_window(view::Live::Is(true))
-          .row(view::Live::Is(true))
-          .height(view::Live::Is(Some(54.0)))
-          .padding(view::Live::Is((28.0, 10.0, 20.0, 6.0)))
-          .lies_along(view::Live::Is(view::Lies::Between))
-          .lines_up(view::Live::Is(Some(view::Along::Middle)))
-
-        let _ = label_by(bar, fn() { page_title(s.page.get()) }, size=16.5, weight=700)
-
-        let _ = lg::liquid_button_group_node(
-          bar,
-          fn() {
-            [
-              lg::LiquidGroupAction::new(
-                label=fn() { "最小化" },
-                icon=fn(ic : view::View, ink : () -> Int64) -> Unit { icon_node(ic, icon_minus_data, 15.0, ink) },
-                press=fn() { hostapi::window_act(1) },
-              ),
-              lg::LiquidGroupAction::new(
-                label=fn() { "关闭" },
-                icon=fn(ic : view::View, ink : () -> Int64) -> Unit { icon_node(ic, icon_close_data, 15.0, ink) },
-                press=fn() { hostapi::window_act(3) },
-              ),
-            ]
+      // Official `lg::liquid_nav_bar_node` (transparent layout chrome `glass=false`, draggable `.moves_window`)
+      let _ = main_col.box(fn(bar_wrap : view::View) -> Unit {
+        let _ = bar_wrap.moves_window(view::Live::Is(true)).padding(view::Live::Is((16.0, 8.0, 16.0, 0.0)))
+        let _ = lg::liquid_nav_bar_node(
+          bar_wrap,
+          fn() { page_title(s.page.get()) },
+          height=46.0,
+          glass=false,
+          trailing=fn(t : view::View) -> Unit {
+            let _ = lg::liquid_button_group_node(
+              t,
+              fn() {
+                [
+                  lg::LiquidGroupAction::new(
+                    label=fn() { "最小化" },
+                    icon=fn(ic : view::View, ink : () -> Int64) -> Unit { icon_node(ic, icon_minus_data, 15.0, ink) },
+                    press=fn() { hostapi::window_act(1) },
+                  ),
+                  lg::LiquidGroupAction::new(
+                    label=fn() { "关闭" },
+                    icon=fn(ic : view::View, ink : () -> Int64) -> Unit { icon_node(ic, icon_close_data, 15.0, ink) },
+                    press=fn() { hostapi::window_act(3) },
+                  ),
+                ]
+              },
+              size=lg::LiquidButtonSize::Small,
+            )
           },
-          size=lg::LiquidButtonSize::Small,
         )
       })
 
@@ -215,7 +216,7 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
         let _ = body_pad
           .grow(view::Live::Is(1.0))
           .min_height(view::Live::Is(Some(0.0)))
-          .padding(view::Live::Is((28.0, 8.0, 28.0, 24.0)))
+          .padding(view::Live::Is((28.0, 10.0, 28.0, 24.0)))
         let _ = body_pad.pick(fn() { model::page_index(s.page.get()) }, fn(body : view::View, idx : Int) -> Unit {
           let _ = body.grow(view::Live::Is(1.0)).min_height(view::Live::Is(Some(0.0)))
           if idx == 1 {
@@ -230,23 +231,23 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
         })
       })
     })
+  })
 
-    // Floating Liquid Toast
-    let _ = stage.box(fn(toast_layer : view::View) -> Unit {
-      let _ = toast_layer
-        .over(view::Live::Is(true))
-        .points(view::Live::Is(false))
-        .lines_up(view::Live::Is(Some(view::Along::Middle)))
-        .lies_along(view::Live::Is(view::Lies::End))
-        .padding(view::Live::Is((0.0, 0.0, 0.0, 22.0)))
-      let _ = lg::liquid_toast_node(
-        toast_layer,
-        fn() { match s.toast.get() { Some(_) => true; None => false } },
-        fn() { match s.toast.get() { Some(t) => t.text; None => "" } },
-        status=lg::LiquidStatus::Info,
-        on_dismiss=fn() { s.dismiss_toast() },
-      )
-    })
+  // Floating Liquid Toast mounted on `root` (always on top)
+  let _ = root.box(fn(toast_layer : view::View) -> Unit {
+    let _ = toast_layer
+      .over(view::Live::Is(true))
+      .points(view::Live::Is(false))
+      .lines_up(view::Live::Is(Some(view::Along::Middle)))
+      .lies_along(view::Live::Is(view::Lies::End))
+      .padding(view::Live::Is((0.0, 0.0, 0.0, 22.0)))
+    let _ = lg::liquid_toast_node(
+      toast_layer,
+      fn() { match s.toast.get() { Some(_) => true; None => false } },
+      fn() { match s.toast.get() { Some(t) => t.text; None => "" } },
+      status=lg::LiquidStatus::Info,
+      on_dismiss=fn() { s.dismiss_toast() },
+    )
   })
 }
 
@@ -303,9 +304,9 @@ fn instance_popover_body(pop : view::View, s : model::Store) -> Unit {
     let _ = label_by(h, fn() { if s.inst_step.get() == 1 { "已管理 SPT 实例" } else { "导入新 SPT 实例" } }, size=14.5, weight=700).grow(view::Live::Is(1.0))
     let _ = h.pick(fn() { s.inst_step.get() }, fn(slot : view::View, st : Int) -> Unit {
       if st == 1 {
-        let _ = glass_action(slot, fn() { "导入新实例" }, fn() { s.open_import() }, tint=c_cobalt, flat=true)
+        let _ = lg::liquid_button_node(slot, fn() { "导入新实例" }, fn() { s.open_import() }, tint=c_cobalt, flat=true, height=30.0, pad_x=12.0)
       } else {
-        let _ = glass_action(slot, fn() { "返回列表" }, fn() { s.inst_step.set(1) }, flat=true)
+        let _ = lg::liquid_button_node(slot, fn() { "返回列表" }, fn() { s.inst_step.set(1) }, flat=true, height=30.0, pad_x=12.0)
       }
     })
   })
@@ -349,7 +350,7 @@ fn instance_popover_body(pop : view::View, s : model::Store) -> Unit {
           edited=fn(p : String) -> Unit { s.probe_path_now(p) },
           submitted=fn(p : String) -> Unit { s.add_instance(p) },
         ).grow(view::Live::Is(1.0))
-        let _ = glass_action(u, fn() { "导入" }, fn() { s.add_instance(path_field.text()) }, tint=c_cobalt, flat=true)
+        let _ = lg::liquid_button_node(u, fn() { "导入" }, fn() { s.add_instance(path_field.text()) }, tint=c_cobalt, flat=true, height=32.0, pad_x=12.0)
       })
     }
   })

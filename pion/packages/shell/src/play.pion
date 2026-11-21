@@ -291,73 +291,65 @@ pub fn play_page(parent : view::View, host : view::View, s : model::Store) -> Un
       })
     })
 
-    // ---- 3. Smart Collapsible Server Console (compact bar when idle; expands when running or toggled) ----
+    // ---- 3. Official `lg::liquid_disclosure_node` Server Console (zero glass-on-glass: flat actions inside) ----
     let expanded = fn() -> Bool {
       log_open.get() || s.log.get().length() > 0 || s.server.get().state == "starting" || s.server.get().state == "ready"
     }
-    let _ = col.box(fn(console_wrap : view::View) -> Unit {
-      let _ = console_wrap
-        .grow(view::Live::By(fn() { if expanded() { 1.0 } else { 0.0 } }))
-        .min_height(view::Live::Is(Some(0.0)))
-        .radius(view::Live::Is(14.0))
-        .ground(view::Live::By(well_bg))
-        .padding(view::Live::Is((16.0, 12.0, 16.0, 12.0)))
-        .gap(view::Live::Is(10.0))
-
-      let _ = hrow(console_wrap, 8.0, fn(hdr : view::View) -> Unit {
-        icon_node(hdr, icon_terminal_data, 16.0, ink_secondary)
-        let _ = label(hdr, "服务端控制台", size=13.5, weight=600).grow(view::Live::Is(1.0))
-        let _ = label_by(hdr, fn() { "\{s.log.get().length()} 行日志" }, size=12.0, ink=ink_muted)
-        hdr.show(fn() { s.server.get().warns > 0 }, fn(wslot : view::View) -> Unit {
-          let _ = lg::liquid_badge_node(wslot, fn() { "\{s.server.get().warns} 警告" }, tone=lg::LiquidTone::Warning)
-        })
-        hdr.show(fn() { s.log.get().length() > 0 }, fn(cslot : view::View) -> Unit {
-          let _ = glass_action(cslot, fn() { "清空" }, fn() { s.log.set([]) })
-        })
-        let _ = glass_action(
-          hdr,
-          fn() { if expanded() { "收起" } else { "展开日志" } },
-          fn() { log_open.set(!log_open.untracked()) },
-        )
-      })
-
-      console_wrap.show(expanded, fn(log_area : view::View) -> Unit {
-        let _ = log_area.grow(view::Live::Is(1.0)).min_height(view::Live::Is(Some(120.0))).clips(view::Live::Is(true))
-        let _ = log_area.scrolls(view::Scroll::plain(), fn(sc : view::View) -> Unit {
-          let _ = sc.grow(view::Live::Is(1.0)).gap(view::Live::Is(5.0))
-          sc.show(fn() { s.log.get().length() == 0 }, fn(empty : view::View) -> Unit {
-            let _ = label(empty, "等待服务端输出日志…", size=12.5, ink=ink_muted)
+    let _ = lg::liquid_disclosure_node(
+      col,
+      fn() { "服务端控制台" },
+      expanded,
+      fn(v : Bool) -> Unit { log_open.set(v) },
+      fn(log_area : view::View) -> Unit {
+        let _ = log_area.gap(view::Live::Is(8.0))
+        log_area.show(fn() { s.log.get().length() > 0 }, fn(bar : view::View) -> Unit {
+          let _ = hrow(bar, 8.0, fn(r : view::View) -> Unit {
+            let _ = label_by(r, fn() { "\{s.log.get().length()} 行日志" }, size=12.0, ink=ink_muted).grow(view::Live::Is(1.0))
+            r.show(fn() { s.server.get().warns > 0 }, fn(wslot : view::View) -> Unit {
+              let _ = lg::liquid_badge_node(wslot, fn() { "\{s.server.get().warns} 警告" }, tone=lg::LiquidTone::Warning)
+            })
+            let _ = lg::liquid_button_node(r, fn() { "清空" }, fn() { s.log.set([]) }, flat=true, height=28.0, pad_x=10.0)
           })
-          sc.each(
-            fn() { s.log.get() },
-            fn(l : model::LogLine) -> Int { l.n },
-            fn(slot : view::View, line_sig : signals::Signal[model::LogLine]) -> Unit {
-              let _ = slot.box(fn(r : view::View) -> Unit {
-                let _ = r.row(view::Live::Is(true)).gap(view::Live::Is(10.0)).lines_up(view::Live::Is(Some(view::Along::Start)))
-                let _ = r.box(fn(tm : view::View) -> Unit {
-                  let _ = tm.words(view::Live::By(fn() { line_sig.get().t }), look=lg::words_at(12.0)).ink(view::Live::By(ink_muted))
-                })
-                let _ = r.box(fn(t : view::View) -> Unit {
-                  let _ = t
-                    .grow(view::Live::Is(1.0))
-                    .words(view::Live::By(fn() { line_sig.get().text }), look=lg::words_at(12.5, wrap=true))
-                    .ink(view::Live::By(fn() {
-                      let lv = line_sig.get().level
-                      if lv == "error" {
-                        c_red
-                      } else if lv == "warn" {
-                        c_amber
-                      } else {
-                        ink_primary()
-                      }
-                    }))
-                })
-              })
-            },
-          )
         })
-      })
-    })
+        let _ = log_area.box(fn(box : view::View) -> Unit {
+          let _ = box.height(view::Live::Is(Some(180.0))).clips(view::Live::Is(true))
+          let _ = box.scrolls(view::Scroll::plain(), fn(sc : view::View) -> Unit {
+            let _ = sc.grow(view::Live::Is(1.0)).gap(view::Live::Is(5.0))
+            sc.show(fn() { s.log.get().length() == 0 }, fn(empty : view::View) -> Unit {
+              let _ = label(empty, "等待服务端输出日志…", size=12.5, ink=ink_muted)
+            })
+            sc.each(
+              fn() { s.log.get() },
+              fn(l : model::LogLine) -> Int { l.n },
+              fn(slot : view::View, line_sig : signals::Signal[model::LogLine]) -> Unit {
+                let _ = slot.box(fn(r : view::View) -> Unit {
+                  let _ = r.row(view::Live::Is(true)).gap(view::Live::Is(10.0)).lines_up(view::Live::Is(Some(view::Along::Start)))
+                  let _ = r.box(fn(tm : view::View) -> Unit {
+                    let _ = tm.words(view::Live::By(fn() { line_sig.get().t }), look=lg::words_at(12.0)).ink(view::Live::By(ink_muted))
+                  })
+                  let _ = r.box(fn(t : view::View) -> Unit {
+                    let _ = t
+                      .grow(view::Live::Is(1.0))
+                      .words(view::Live::By(fn() { line_sig.get().text }), look=lg::words_at(12.5, wrap=true))
+                      .ink(view::Live::By(fn() {
+                        let lv = line_sig.get().level
+                        if lv == "error" {
+                          c_red
+                        } else if lv == "warn" {
+                          c_amber
+                        } else {
+                          ink_primary()
+                        }
+                      }))
+                  })
+                })
+              },
+            )
+          })
+        })
+      },
+      subtitle=fn() { "\{s.log.get().length()} 行日志" },
+    )
   })
 }
 

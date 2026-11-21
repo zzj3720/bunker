@@ -1,4 +1,7 @@
-// Mods page: Floating Liquid Glass toolbar + open hairline-divided list directly on the wallpaper.
+// Mods page rewritten on latest AFK-surf/invar (41a457b2):
+// - Official `lg::liquid_search_bar_node`, `lg::liquid_toolbar_node` (with flat+ghost+neutral_active desktop filter buttons),
+//   `lg::liquid_button_node`, `lg::liquid_popover_node`, `lg::liquid_toggle_node`, `lg::liquid_badge_node`, `lg::liquid_chip_node`
+// - Zero glass-on-glass, zero dividers, zero hand-rolled glass
 
 import "headless"
 import "hostapi"
@@ -7,14 +10,6 @@ import "model"
 import "signals"
 import "ui"
 import "view"
-
-fn filter_index(f : String) -> Int {
-  if f == "on" { 1 } else if f == "off" { 2 } else if f == "update" { 3 } else if f == "bad" { 4 } else { 0 }
-}
-
-fn filter_from_index(i : Int) -> String {
-  if i == 1 { "on" } else if i == 2 { "off" } else if i == 3 { "update" } else if i == 4 { "bad" } else { "all" }
-}
 
 fn side_label(side : String) -> String {
   if side == "client" { "客户端" } else if side == "server" { "服务端" } else if side == "both" { "双端" } else { side }
@@ -26,10 +21,10 @@ pub fn mods_page(parent : view::View, host : view::View, s : model::Store) -> Un
     let _ = col
       .grow(view::Live::Is(1.0))
       .min_height(view::Live::Is(Some(0.0)))
-      .gap(view::Live::Is(20.0))
+      .gap(view::Live::Is(18.0))
 
-    // Floating Liquid Glass toolbar
-    let _ = hrow(col, 12.0, fn(bar : view::View) -> Unit {
+    // Official Liquid Glass Search + Desktop Toolbar Filter + Action Buttons
+    let _ = hrow(col, 10.0, fn(bar : view::View) -> Unit {
       let _ = lg::liquid_search_bar_node(
         bar,
         search_field,
@@ -39,14 +34,31 @@ pub fn mods_page(parent : view::View, host : view::View, s : model::Store) -> Un
         on_clear=fn() -> Unit { s.mods_query.set("") },
       ).grow(view::Live::Is(1.0))
 
-      let _ = lg::liquid_segmented_node(
-        bar,
-        fn() { ["全部", "已启用", "已禁用", "有更新", "不兼容"] },
-        fn() { filter_index(s.mods_filter.get()) },
-        fn(i : Int) -> Unit { s.mods_filter.set(filter_from_index(i)) },
-        width=310.0,
-        height=44.0,
-      )
+      // Official `lg::liquid_toolbar_node` with concentric 32pt `flat=true, ghost=true, neutral_active=true` buttons
+      let _ = lg::liquid_toolbar_node(bar, fn(tb : view::View) -> Unit {
+        let filters : Array[(String, String)] = [
+          ("all", "全部"),
+          ("on", "已启用"),
+          ("off", "已禁用"),
+          ("update", "有更新"),
+          ("bad", "不兼容"),
+        ]
+        for f in filters {
+          let key = f.0
+          let txt = f.1
+          let _ = lg::liquid_button_node(
+            tb,
+            fn() { txt },
+            fn() { s.mods_filter.set(key) },
+            flat=true,
+            ghost=true,
+            height=32.0,
+            pad_x=10.0,
+            active=fn() { s.mods_filter.get() == key },
+            neutral_active=true,
+          )
+        }
+      })
 
       let _ = lg::liquid_button_node(
         bar,
@@ -79,16 +91,16 @@ pub fn mods_page(parent : view::View, host : view::View, s : model::Store) -> Un
       )
     })
 
-    // Open list directly on wallpaper
+    // Open list directly on clean neutral canvas
     let _ = col.box(fn(list_wrap : view::View) -> Unit {
-      let _ = list_wrap.grow(view::Live::Is(1.0)).min_height(view::Live::Is(Some(0.0))).gap(view::Live::Is(6.0))
+      let _ = list_wrap.grow(view::Live::Is(1.0)).min_height(view::Live::Is(Some(0.0))).gap(view::Live::Is(8.0))
       section_head(
         list_wrap,
         "已安装 MOD",
         detail=fn() { "显示 \{s.mods_shown().length()} / 共 \{s.mods.get().length()} · 禁用暂存 .bunker/disabled" },
       )
       let _ = list_wrap.scrolls(view::Scroll::plain(), fn(sc : view::View) -> Unit {
-        let _ = sc.grow(view::Live::Is(1.0))
+        let _ = sc.grow(view::Live::Is(1.0)).gap(view::Live::Is(4.0))
         sc.show(fn() { s.mods_shown().length() == 0 }, fn(empty : view::View) -> Unit {
           let _ = empty.padding(view::Live::Is((0.0, 32.0, 0.0, 32.0))).lines_up(view::Live::Is(Some(view::Along::Middle)))
           let _ = label(empty, "没有匹配的 Mod。", size=14.0, ink=ink_muted)
@@ -112,8 +124,10 @@ fn mod_row(parent : view::View, s : model::Store, m : signals::Signal[model::Mod
     let _ = r
       .row(view::Live::Is(true))
       .lines_up(view::Live::Is(Some(view::Along::Middle)))
-      .gap(view::Live::Is(16.0))
-      .padding(view::Live::Is((4.0, 14.0, 4.0, 14.0)))
+      .gap(view::Live::Is(14.0))
+      .padding(view::Live::Is((12.0, 12.0, 12.0, 12.0)))
+      .radius(view::Live::Is(12.0))
+      .ground(view::Live::By(surface_subtle))
 
     let _ = lg::liquid_toggle_node(
       r,
@@ -123,11 +137,11 @@ fn mod_row(parent : view::View, s : model::Store, m : signals::Signal[model::Mod
     )
 
     let _ = r.box(fn(info : view::View) -> Unit {
-      let _ = info.grow(view::Live::Is(1.0)).basis(view::Live::Is(Some(0.0))).min_width(view::Live::Is(Some(0.0))).gap(view::Live::Is(3.0))
+      let _ = info.grow(view::Live::Is(1.0)).basis(view::Live::Is(Some(0.0))).min_width(view::Live::Is(Some(0.0))).gap(view::Live::Is(2.0))
       let _ = hrow(info, 8.0, fn(top : view::View) -> Unit {
-        let _ = label_by(top, fn() { m.get().name }, size=15.0, weight=600)
-        let _ = label_by(top, fn() { if m.get().version != "" { "v\{m.get().version}" } else { "" } }, size=12.5, ink=ink_muted)
-        let _ = label_by(top, fn() { if m.get().author != "" { "by \{m.get().author}" } else { "" } }, size=12.5, ink=ink_muted)
+        let _ = label_by(top, fn() { m.get().name }, size=14.5, weight=600)
+        let _ = label_by(top, fn() { if m.get().version != "" { "v\{m.get().version}" } else { "" } }, size=12.0, ink=ink_muted)
+        let _ = label_by(top, fn() { if m.get().author != "" { "by \{m.get().author}" } else { "" } }, size=12.0, ink=ink_muted)
       })
       let _ = label_by(
         info,
@@ -243,7 +257,7 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
           size=13.5,
           weight=600,
         )
-        let _ = glass_action(zone, fn() { "选择压缩包" }, fn() {
+        let _ = lg::liquid_button_node(zone, fn() { "选择压缩包" }, fn() {
           match hostapi::pick(hostapi::PickKind::Files, false) {
             Some(pk) =>
               match pk.files() {
@@ -252,7 +266,7 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
               }
             None => ()
           }
-        }, flat=true)
+        }, flat=true, height=32.0, pad_x=12.0)
       })
       let _ = hrow(st, 8.0, fn(u : view::View) -> Unit {
         let _ = lg::liquid_search_bar_node(
@@ -263,7 +277,7 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
           flat=true,
           submitted=fn(t : String) -> Unit { s.plan_url(t) },
         ).grow(view::Live::Is(1.0))
-        let _ = glass_action(u, fn() { "解析" }, fn() { s.plan_url(url_field.text()) }, tint=c_cobalt, flat=true)
+        let _ = lg::liquid_button_node(u, fn() { "解析" }, fn() { s.plan_url(url_field.text()) }, tint=c_cobalt, flat=true, height=32.0, pad_x=12.0)
       })
     } else {
       let get_plan = fn() -> model::Plan {
@@ -290,9 +304,9 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
         )
       })
       let _ = hrow(st, 8.0, fn(f : view::View) -> Unit {
-        let _ = glass_action(f, fn() { "上一步" }, fn() { s.drop_plan() }, flat=true)
+        let _ = lg::liquid_button_node(f, fn() { "上一步" }, fn() { s.drop_plan() }, flat=true, height=32.0, pad_x=12.0)
         spacer(f)
-        let _ = glass_action(
+        let _ = lg::liquid_button_node(
           f,
           fn() { if s.busy.get() == "installing" { "安装中…" } else { "确认安装" } },
           fn() {
@@ -303,6 +317,8 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
           },
           tint=c_cobalt,
           flat=true,
+          height=32.0,
+          pad_x=14.0,
         )
       })
     }

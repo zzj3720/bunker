@@ -21,6 +21,7 @@ typedef void (*bunker_post_fn)(const uint8_t *json, size_t len);
 extern void bunker_set_post(bunker_post_fn f);
 extern void bunker_call(int64_t id, const uint8_t *json, size_t len);
 extern void bunker_call_data(int64_t id, const uint8_t *json, size_t len, const uint8_t *data, size_t dlen);
+extern void mb_host_wake_now(void);
 
 typedef struct msg_node {
   char *json;
@@ -53,6 +54,7 @@ static void on_core_post(const uint8_t *json, size_t len) {
     g_head = g_tail = node;
   }
   core_mutex_unlock(&g_mu);
+  mb_host_wake_now();
 }
 
 int32_t pion_bunker_core_init(const char *dir, int64_t dir_len) {
