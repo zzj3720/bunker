@@ -1,81 +1,62 @@
-// Bunker UI helpers built 100% on AFK-surf/invar `lg` components:
-// - ZERO hand-written `paint::Glass`
-// - ZERO hand-written `inline_pill` buttons
-// - Soft airy Light/Dark wallpaper matching invar's optical glass guidelines (zero cards, zero dividers)
+// macOS 27 Golden Gate (Apple HIG) design tokens & helpers built 100% on AFK-surf/invar `lg`.
+// - Clean neutral content canvas (#FFFFFF light / #141416 dark) — zero rainbow blobs
+// - Edge-to-edge sidebar (#F2F2F7 light / #1C1C1F dark) with crisp 1px structural edge
+// - Standard Apple System Blue (#007AFF) primary accent + colorful semantic sidebar icons
+// - ZERO hand-written glass, ZERO hand-written pill buttons
 
 import "lg"
 import "view"
 
-/// Deep accessible Monoid Cobalt & semantic accents (>= 4.5:1 contrast with white text on tinted glass).
-pub let c_cobalt : Int64 = 0x0052B8FFL
-pub let c_vermilion : Int64 = 0xB42318FFL
-pub let c_green : Int64 = 0x30D158FFL
+/// Apple macOS 27 Golden Gate semantic accents.
+pub let c_cobalt : Int64 = 0x007AFFFFL
+pub let c_indigo : Int64 = 0x5856D6FFL
+pub let c_green : Int64 = 0x28CD41FFL
+pub let c_orange : Int64 = 0xFF9500FFL
 pub let c_amber : Int64 = 0xFF9F0AFFL
 pub let c_red : Int64 = 0xFF3B30FFL
+pub let c_vermilion : Int64 = 0xD92D20FFL
+
+pub fn canvas_bg() -> Int64 {
+  if lg::is_dark() { 0x141416FFL } else { 0xFFFFFFFFL }
+}
+
+pub fn sidebar_bg() -> Int64 {
+  if lg::is_dark() { 0x1C1C20FFL } else { 0xF3F3F7FFL }
+}
+
+pub fn sidebar_edge() -> Int64 {
+  if lg::is_dark() { 0xFFFFFF14L } else { 0x00000012L }
+}
+
+pub fn surface_subtle() -> Int64 {
+  if lg::is_dark() { 0x1E1E22FFL } else { 0xF5F5F7FFL }
+}
+
+pub fn well_bg() -> Int64 {
+  if lg::is_dark() { 0x1B1B1FFFL } else { 0xF5F5F8FFL }
+}
 
 pub fn ink_primary() -> Int64 {
   lg::colors().content
 }
 
 pub fn ink_secondary() -> Int64 {
-  lg::alpha(lg::colors().content, 0.72)
+  lg::alpha(lg::colors().content, 0.68)
 }
 
 pub fn ink_muted() -> Int64 {
-  lg::alpha(lg::colors().content, 0.54)
-}
-
-pub fn well_bg() -> Int64 {
-  if lg::is_dark() { 0xFFFFFF0AL } else { 0xFFFFFF88L }
+  lg::alpha(lg::colors().content, 0.48)
 }
 
 pub fn row_hover_bg() -> Int64 {
-  if lg::is_dark() { 0xFFFFFF0FL } else { 0x0000000AL }
+  if lg::is_dark() { 0xFFFFFF0CL } else { 0x00000008L }
 }
 
 pub fn row_selected_bg() -> Int64 {
-  if lg::is_dark() { 0x0088FF26L } else { 0x0088FF18L }
+  if lg::is_dark() { 0x0A84FF28L } else { 0x007AFF18L }
 }
 
-/// Soft airy wallpaper for Liquid Glass controls to refract cleanly (matches logi-dpi / invar).
-pub fn bunker_backdrop(parent : view::View) -> Unit {
-  let _ = parent.box(fn(paper : view::View) -> Unit {
-    let _ = paper
-      .over(view::Live::Is(true))
-      .clips(view::Live::Is(true))
-      .points(view::Live::Is(false))
-      .ground(view::Live::By(fn() { if lg::is_dark() { 0x0A0B10FFL } else { 0xF3F4F7FFL } }))
-    let blots : Array[(Double, Double, Double, Int64, Int64)] = [
-      (-140.0, -180.0, 560.0, 0x7DD3FCFFL, 0x0E7490FFL),
-      (640.0, -220.0, 620.0, 0xC4B5FDFFL, 0x6D28D9FFL),
-      (340.0, 380.0, 620.0, 0x93C5FDFFL, 0x1D4ED8FFL),
-    ]
-    for bi = 0; bi < blots.length(); bi = bi + 1 {
-      let b = blots[bi]
-      let cx = b.0 + b.2 / 2.0
-      let cy = b.1 + b.2 / 2.0
-      let layers = 18
-      for k = 0; k < layers; k = k + 1 {
-        let t = k.to_double() / (layers - 1).to_double()
-        let ld = b.2 * (1.76 - 1.60 * t)
-        let a = 0.020 + 0.022 * t
-        let light = b.3
-        let dark = b.4
-        let _ = paper.box(fn(c : view::View) -> Unit {
-          let _ = c
-            .over(view::Live::Is(true))
-            .width(view::Live::Is(Some(ld)))
-            .height(view::Live::Is(Some(ld)))
-            .radius(view::Live::Is(ld / 2.0))
-            .offset(view::Live::Is((cx - ld / 2.0, cy - ld / 2.0)))
-            .ground(view::Live::By(fn() { lg::alpha(if lg::is_dark() { dark } else { light }, a) }))
-        })
-      }
-    }
-  })
-}
-
-/// Clean typographic section header (zero divider lines).
+/// Clean typographic section header (zero divider hairlines).
 pub fn section_head(parent : view::View, title : String, detail~ : () -> String = fn() { "" }) -> Unit {
   let _ = parent.box(fn(r : view::View) -> Unit {
     let _ = r
@@ -85,8 +66,8 @@ pub fn section_head(parent : view::View, title : String, detail~ : () -> String 
       .gap(view::Live::Is(12.0))
     let _ = r.box(fn(l : view::View) -> Unit {
       let _ = l
-        .words(view::Live::Is(title), look=lg::words_at(13.0, weight=600))
-        .ink(view::Live::By(ink_secondary))
+        .words(view::Live::Is(title), look=lg::words_at(12.5, weight=600))
+        .ink(view::Live::By(ink_muted))
     })
     r.show(fn() { detail() != "" }, fn(d : view::View) -> Unit {
       let _ = d
@@ -138,7 +119,7 @@ pub fn label_by(
   })
 }
 
-/// Compact real Liquid Glass action pill (`lg::liquid_chip_node` on canvas, `lg::liquid_button_node(flat=true)` in popovers).
+/// Official invar `lg` compact action (`lg::liquid_chip_node` on canvas, `lg::liquid_button_node(flat=true)` in popovers).
 pub fn glass_action(
   parent : view::View,
   text : () -> String,
