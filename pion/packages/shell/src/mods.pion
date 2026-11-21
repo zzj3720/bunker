@@ -98,7 +98,6 @@ pub fn mods_page(parent : view::View, host : view::View, s : model::Store) -> Un
           fn(m : model::ModItem) -> String { m.id },
           fn(slot : view::View, item_sig : signals::Signal[model::ModItem]) -> Unit {
             mod_row(slot, s, item_sig)
-            divider(slot)
           },
         )
       })
@@ -227,7 +226,6 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
       tone=lg::LiquidTone::Accent,
     )
   })
-  divider(pop)
   let _ = pop.pick(fn() { s.install_step.get() }, fn(st : view::View, step : Int) -> Unit {
     let _ = st.gap(view::Live::Is(12.0))
     if step == 1 {

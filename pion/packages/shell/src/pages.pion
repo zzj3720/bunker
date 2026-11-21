@@ -94,7 +94,6 @@ pub fn snapshots_page(parent : view::View, s : model::Store) -> Unit {
                 let _ = inline_pill(act, fn() { "删除" }, fn() { s.delete_snapshot(sn_sig.untracked().id) }, danger=true)
               })
             })
-            divider(slot)
           },
         )
       })

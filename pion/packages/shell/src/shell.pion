@@ -184,7 +184,6 @@ fn instance_popover_body(pop : view::View, s : model::Store) -> Unit {
       }
     })
   })
-  divider(pop)
   let _ = pop.pick(fn() { s.inst_step.get() }, fn(body : view::View, st : Int) -> Unit {
     let _ = body.gap(view::Live::Is(6.0))
     if st == 1 {
@@ -234,7 +233,6 @@ fn instance_popover_body(pop : view::View, s : model::Store) -> Unit {
 fn role_popover_body(pop : view::View, s : model::Store) -> Unit {
   let _ = pop.gap(view::Live::Is(10.0))
   let _ = label(pop, "选择出战角色", size=14.5, weight=700)
-  divider(pop)
   pop.each(
     fn() { s.characters.get() },
     fn(c : model::Character) -> String { c.username },

@@ -33,7 +33,7 @@ pub fn hairline_ink() -> Int64 {
 }
 
 pub fn well_bg() -> Int64 {
-  if lg::is_dark() { 0x00000044L } else { 0xFFFFFF78L }
+  if lg::is_dark() { 0x1B1B1FFFL } else { 0xEBEBF0FFL }
 }
 
 pub fn row_hover_bg() -> Int64 {
@@ -60,77 +60,35 @@ pub fn capsule_glass() -> paint::Glass {
   )
 }
 
-/// 18-layer smooth atmospheric wallpaper matching `invar/packages/lg_pages/src/pages.pion`.
-/// Gives every floating Liquid Glass control clean, banding-free colour fields to refract.
+/// Clean solid native canvas background (dark charcoal / light alabaster, zero gradient blobs).
 pub fn bunker_backdrop(parent : view::View) -> Unit {
   let _ = parent.box(fn(paper : view::View) -> Unit {
     let _ = paper
       .over(view::Live::Is(true))
       .clips(view::Live::Is(true))
       .points(view::Live::Is(false))
-      .ground(view::Live::By(fn() { if lg::is_dark() { 0x090A0EFFL } else { 0xF4F1EAFFL } }))
-    let blots : Array[(Double, Double, Double, Int64, Int64)] = [
-      // Top-left: Deep Teal
-      (-140.0, -140.0, 520.0, 0x7ED8C8FFL, 0x0E5A58FFL),
-      // Top-right: Deep Cobalt / Indigo
-      (680.0, -160.0, 560.0, 0x8CC4FAFFL, 0x1D4ED8FFL),
-      // Bottom-right: Subtle Slate Violet
-      (740.0, 400.0, 520.0, 0xC4B5FDFFL, 0x3B2A7AFFL),
-    ]
-    let mut bi = 0
-    while bi < blots.length() {
-      let b = blots[bi]
-      let cx = b.0 + b.2 / 2.0
-      let cy = b.1 + b.2 / 2.0
-      let d = b.2
-      let light_col = b.3
-      let dark_col = b.4
-      let layers = 18
-      let mut k = 0
-      while k < layers {
-        let t = k.to_double() / (layers - 1).to_double()
-        let ld = d * (1.76 - 1.60 * t)
-        let base_a = 0.016 + 0.016 * t
-        let _ = paper.box(fn(c : view::View) -> Unit {
-          let _ = c
-            .over(view::Live::Is(true))
-            .width(view::Live::Is(Some(ld)))
-            .height(view::Live::Is(Some(ld)))
-            .radius(view::Live::Is(ld / 2.0))
-            .offset(view::Live::Is((cx - ld / 2.0, cy - ld / 2.0)))
-            .ground(view::Live::By(fn() {
-              lg::alpha(if lg::is_dark() { dark_col } else { light_col }, base_a)
-            }))
-        })
-        k += 1
-      }
-      bi += 1
-    }
+      .ground(view::Live::By(fn() { if lg::is_dark() { 0x121215FFL } else { 0xF5F5F7FFL } }))
   })
 }
 
-/// AFK-style subtle section header with trailing hairline rule (directly on wallpaper, zero card chrome).
+/// Clean typographic section header (pure whitespace, no divider hairlines).
 pub fn section_head(parent : view::View, title : String, detail~ : () -> String = fn() { "" }) -> Unit {
-  let _ = parent.box(fn(hdr : view::View) -> Unit {
-    let _ = hdr.gap(view::Live::Is(6.0))
-    let _ = hdr.box(fn(r : view::View) -> Unit {
-      let _ = r
-        .row(view::Live::Is(true))
-        .lies_along(view::Live::Is(view::Lies::Between))
-        .lines_up(view::Live::Is(Some(view::Along::Middle)))
-        .gap(view::Live::Is(12.0))
-      let _ = r.box(fn(l : view::View) -> Unit {
-        let _ = l
-          .words(view::Live::Is(title), look=lg::words_at(12.0, weight=600))
-          .ink(view::Live::By(ink_secondary))
-      })
-      r.show(fn() { detail() != "" }, fn(d : view::View) -> Unit {
-        let _ = d
-          .words(view::Live::By(detail), look=lg::words_at(12.0, weight=500))
-          .ink(view::Live::By(ink_muted))
-      })
+  let _ = parent.box(fn(r : view::View) -> Unit {
+    let _ = r
+      .row(view::Live::Is(true))
+      .lies_along(view::Live::Is(view::Lies::Between))
+      .lines_up(view::Live::Is(Some(view::Along::Middle)))
+      .gap(view::Live::Is(12.0))
+    let _ = r.box(fn(l : view::View) -> Unit {
+      let _ = l
+        .words(view::Live::Is(title), look=lg::words_at(13.0, weight=600))
+        .ink(view::Live::By(ink_secondary))
     })
-    divider(hdr)
+    r.show(fn() { detail() != "" }, fn(d : view::View) -> Unit {
+      let _ = d
+        .words(view::Live::By(detail), look=lg::words_at(12.0, weight=500))
+        .ink(view::Live::By(ink_muted))
+    })
   })
 }
 

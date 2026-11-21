@@ -161,14 +161,13 @@ pub fn play_page(parent : view::View, host : view::View, s : model::Store) -> Un
           .gap(view::Live::Is(12.0))
 
         let _ = hrow(left, 8.0, fn(hdr : view::View) -> Unit {
-          let _ = label(hdr, "服务端实时日志", size=12.5, weight=600, ink=ink_secondary).grow(view::Live::Is(1.0))
+          let _ = label(hdr, "服务端实时日志", size=13.0, weight=600, ink=ink_secondary).grow(view::Live::Is(1.0))
           let _ = lg::liquid_badge_node(hdr, fn() { "\{s.log.get().length()} 行" }, tone=lg::LiquidTone::Neutral)
           hdr.show(fn() { s.server.get().warns > 0 }, fn(wslot : view::View) -> Unit {
             let _ = lg::liquid_badge_node(wslot, fn() { "\{s.server.get().warns} 警告" }, tone=lg::LiquidTone::Warning)
           })
           let _ = inline_pill(hdr, fn() { "清空" }, fn() { s.log.set([]) })
         })
-        divider(left)
 
         let _ = left.box(fn(well : view::View) -> Unit {
           let _ = well
@@ -320,7 +319,6 @@ fn deps_check_section(parent : view::View, s : model::Store) -> Unit {
         },
       )
     })
-    divider(sec)
     let _ = label_by(
       sec,
       fn() {
