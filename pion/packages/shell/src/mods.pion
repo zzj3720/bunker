@@ -158,20 +158,20 @@ fn mod_row(parent : view::View, s : model::Store, m : signals::Signal[model::Mod
       fn(act : view::View, kind : Int) -> Unit {
         let _ = act.row(view::Live::Is(true)).gap(view::Live::Is(6.0))
         if kind == 2 {
-          let _ = inline_pill(act, fn() { "取消" }, fn() { asking.set(false) })
-          let _ = inline_pill(act, fn() { "仅禁用" }, fn() {
+          let _ = glass_action(act, fn() { "取消" }, fn() { asking.set(false) })
+          let _ = glass_action(act, fn() { "仅禁用" }, fn() {
             asking.set(false)
             s.disable_mods([m.untracked().id], false)
           })
-          let _ = inline_pill(act, fn() { "连同依赖" }, fn() {
+          let _ = glass_action(act, fn() { "连同依赖" }, fn() {
             asking.set(false)
             s.disable_mods([m.untracked().id], true)
           }, danger=true)
         } else if kind == 1 {
           act.show(fn() { m.get().fix_url != "" }, fn(y : view::View) -> Unit {
-            let _ = inline_pill(y, fn() { "一键更新" }, fn() { s.fix_mods([m.untracked().id]) }, tint=c_cobalt)
+            let _ = glass_action(y, fn() { "一键更新" }, fn() { s.fix_mods([m.untracked().id]) }, tint=c_cobalt)
           })
-          let _ = inline_pill(act, fn() { "禁用" }, fn() {
+          let _ = glass_action(act, fn() { "禁用" }, fn() {
             if m.untracked().required_by.length() == 0 {
               s.disable_mods([m.untracked().id], false)
             } else {
@@ -180,9 +180,9 @@ fn mod_row(parent : view::View, s : model::Store, m : signals::Signal[model::Mod
           }, danger=true)
         } else {
           act.show(fn() { m.get().update != "" }, fn(y : view::View) -> Unit {
-            let _ = inline_pill(y, fn() { "更新" }, fn() { s.update_mod(m.untracked().id) }, tint=c_cobalt)
+            let _ = glass_action(y, fn() { "更新" }, fn() { s.update_mod(m.untracked().id) }, tint=c_cobalt)
           })
-          let _ = inline_pill(act, fn() { "配置" }, fn() {
+          let _ = glass_action(act, fn() { "配置" }, fn() {
             let owners : Array[String] = []
             for rt in m.untracked().roots { owners.push(model::str_basename(rt)) }
             s.page.set(model::Page::Config)
@@ -196,7 +196,7 @@ fn mod_row(parent : view::View, s : model::Store, m : signals::Signal[model::Mod
             }
             s.say("这个 Mod 没有可编辑的配置文件（JSON / JSONC / CFG）")
           })
-          let _ = inline_pill(
+          let _ = glass_action(
             act,
             fn() { if confirm.get() { "确认卸载" } else { "卸载" } },
             fn() {
@@ -243,7 +243,7 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
           size=13.5,
           weight=600,
         )
-        let _ = inline_pill(zone, fn() { "选择压缩包" }, fn() {
+        let _ = glass_action(zone, fn() { "选择压缩包" }, fn() {
           match hostapi::pick(hostapi::PickKind::Files, false) {
             Some(pk) =>
               match pk.files() {
@@ -252,7 +252,7 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
               }
             None => ()
           }
-        })
+        }, flat=true)
       })
       let _ = hrow(st, 8.0, fn(u : view::View) -> Unit {
         let _ = lg::liquid_search_bar_node(
@@ -263,7 +263,7 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
           flat=true,
           submitted=fn(t : String) -> Unit { s.plan_url(t) },
         ).grow(view::Live::Is(1.0))
-        let _ = inline_pill(u, fn() { "解析" }, fn() { s.plan_url(url_field.text()) }, tint=c_cobalt)
+        let _ = glass_action(u, fn() { "解析" }, fn() { s.plan_url(url_field.text()) }, tint=c_cobalt, flat=true)
       })
     } else {
       let get_plan = fn() -> model::Plan {
@@ -290,9 +290,9 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
         )
       })
       let _ = hrow(st, 8.0, fn(f : view::View) -> Unit {
-        let _ = inline_pill(f, fn() { "上一步" }, fn() { s.drop_plan() })
+        let _ = glass_action(f, fn() { "上一步" }, fn() { s.drop_plan() }, flat=true)
         spacer(f)
-        let _ = inline_pill(
+        let _ = glass_action(
           f,
           fn() { if s.busy.get() == "installing" { "安装中…" } else { "确认安装" } },
           fn() {
@@ -302,6 +302,7 @@ fn install_popover_body(pop : view::View, s : model::Store) -> Unit {
             }
           },
           tint=c_cobalt,
+          flat=true,
         )
       })
     }

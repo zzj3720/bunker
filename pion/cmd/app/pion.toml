@@ -27,3 +27,6 @@ frameworks = [
   "CoreVideo",
   "WebKit",
 ]
+
+[link.windows]
+flags = ["-mwindows"]

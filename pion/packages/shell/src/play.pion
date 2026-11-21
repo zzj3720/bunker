@@ -166,7 +166,7 @@ pub fn play_page(parent : view::View, host : view::View, s : model::Store) -> Un
           hdr.show(fn() { s.server.get().warns > 0 }, fn(wslot : view::View) -> Unit {
             let _ = lg::liquid_badge_node(wslot, fn() { "\{s.server.get().warns} 警告" }, tone=lg::LiquidTone::Warning)
           })
-          let _ = inline_pill(hdr, fn() { "清空" }, fn() { s.log.set([]) })
+          let _ = glass_action(hdr, fn() { "清空" }, fn() { s.log.set([]) })
         })
 
         let _ = left.box(fn(well : view::View) -> Unit {
@@ -348,7 +348,7 @@ fn deps_check_section(parent : view::View, s : model::Store) -> Unit {
       fn(act : view::View, st : Int) -> Unit {
         let _ = act.row(view::Live::Is(true)).gap(view::Live::Is(8.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
         if st == 1 {
-          let _ = inline_pill(
+          let _ = glass_action(
             act,
             fn() { "安全禁用" },
             fn() {
@@ -369,7 +369,7 @@ fn deps_check_section(parent : view::View, s : model::Store) -> Unit {
               false
             },
             fn(y : view::View) -> Unit {
-              let _ = inline_pill(
+              let _ = glass_action(
                 y,
                 fn() { "一键更新" },
                 fn() {
@@ -382,14 +382,14 @@ fn deps_check_section(parent : view::View, s : model::Store) -> Unit {
             },
           )
         } else if st == 2 {
-          let _ = inline_pill(act, fn() { "取消" }, fn() { step.set(1) })
-          let _ = inline_pill(act, fn() { "仅禁用" }, fn() {
+          let _ = glass_action(act, fn() { "取消" }, fn() { step.set(1) })
+          let _ = glass_action(act, fn() { "仅禁用" }, fn() {
             step.set(1)
             let ids : Array[String] = []
             for m in s.incompatible_now() { ids.push(m.id) }
             s.disable_mods(ids, false)
           })
-          let _ = inline_pill(act, fn() { "连同依赖" }, fn() {
+          let _ = glass_action(act, fn() { "连同依赖" }, fn() {
             step.set(1)
             let ids : Array[String] = []
             for m in s.incompatible_now() { ids.push(m.id) }
@@ -422,9 +422,9 @@ fn gate_popover_body(pop : view::View, s : model::Store) -> Unit {
   let _ = pop.pick(fn() { s.gate_step.get() }, fn(f : view::View, st : Int) -> Unit {
     let _ = f.row(view::Live::Is(true)).gap(view::Live::Is(8.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
     if st == 1 {
-      let _ = inline_pill(f, fn() { "仍然启动" }, fn() { s.launch_past_gate() })
+      let _ = glass_action(f, fn() { "仍然启动" }, fn() { s.launch_past_gate() }, flat=true)
       spacer(f)
-      let _ = inline_pill(
+      let _ = glass_action(
         f,
         fn() { "安全禁用" },
         fn() {
@@ -438,20 +438,21 @@ fn gate_popover_body(pop : view::View, s : model::Store) -> Unit {
           }
         },
         danger=true,
+        flat=true,
       )
     } else {
-      let _ = inline_pill(f, fn() { "返回" }, fn() { s.gate_step.set(1) })
+      let _ = glass_action(f, fn() { "返回" }, fn() { s.gate_step.set(1) }, flat=true)
       spacer(f)
-      let _ = inline_pill(f, fn() { "仅禁用" }, fn() {
+      let _ = glass_action(f, fn() { "仅禁用" }, fn() {
         let ids : Array[String] = []
         for m in s.incompatible_now() { ids.push(m.id) }
         s.disable_mods(ids, false)
-      })
-      let _ = inline_pill(f, fn() { "连同依赖" }, fn() {
+      }, flat=true)
+      let _ = glass_action(f, fn() { "连同依赖" }, fn() {
         let ids : Array[String] = []
         for m in s.incompatible_now() { ids.push(m.id) }
         s.disable_mods(ids, true)
-      }, danger=true)
+      }, danger=true, flat=true)
     }
   })
 }

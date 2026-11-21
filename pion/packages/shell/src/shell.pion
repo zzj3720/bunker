@@ -1,10 +1,7 @@
-// Root Bunker shell modeled directly on AFK-surf/invar (`lg_pages/library.pion`):
-// - Smooth 18-layer optical wallpaper (Dark & Light)
-// - Clean transparent top nav bar with floating Liquid Glass capsules & Segmented control
-// - Open cardless workspace pages (Play / Mods / Snapshots / Config)
-// - Floating Liquid Glass popovers & toast
+// Root Bunker shell: 100% pure AFK-surf/invar `lg` components + borderless window chrome (`.moves_window`).
 
 import "headless"
+import "hostapi"
 import "lg"
 import "model"
 import "signals"
@@ -21,12 +18,18 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
       let _ = frame
         .grow(view::Live::Is(1.0))
         .min_height(view::Live::Is(Some(0.0)))
-        .padding(view::Live::Is((28.0, 20.0, 28.0, 24.0)))
-        .gap(view::Live::Is(24.0))
+        .padding(view::Live::Is((24.0, 16.0, 24.0, 22.0)))
+        .gap(view::Live::Is(20.0))
 
-      // ---- Top Floating Chrome (Instance Popover + Liquid Segmented Nav + Role Popover + Theme Toggle) ----
-      let _ = hrow(frame, 12.0, fn(top : view::View) -> Unit {
-        // 1. Instance Selector Popover Capsule
+      // ---- Borderless Draggable Top Bar (100% official lg::* controls) ----
+      let _ = frame.box(fn(top : view::View) -> Unit {
+        let _ = top
+          .moves_window(view::Live::Is(true))
+          .row(view::Live::Is(true))
+          .gap(view::Live::Is(10.0))
+          .lines_up(view::Live::Is(Some(view::Along::Middle)))
+
+        // 1. Instance Selector Popover (real lg::liquid_button_node trigger)
         let _ = lg::liquid_popover_node(
           top,
           stage,
@@ -37,17 +40,7 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
           },
           fn() { "切换 SPT 实例" },
           fn(trig : view::View, _d : headless::Disclosure) -> Unit {
-            let _ = trig
-              .row(view::Live::Is(true))
-              .lines_up(view::Live::Is(Some(view::Along::Middle)))
-              .height(view::Live::Is(Some(42.0)))
-              .padding(view::Live::Is((16.0, 0.0, 14.0, 0.0)))
-              .gap(view::Live::Is(8.0))
-              .radius(view::Live::Is(21.0))
-              .shadow(view::Live::Is(lg::shadow_default))
-              .shadow_outside(view::Live::Is(true))
-              .glass(view::Live::By(fn() { Some(capsule_glass()) }))
-            let _ = label_by(
+            let _ = lg::liquid_button_node(
               trig,
               fn() {
                 match s.current_inst() {
@@ -55,10 +48,23 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
                   None => "导入 SPT 实例"
                 }
               },
-              size=14.0,
-              weight=600,
+              fn() { s.inst_open.set(!s.inst_open.untracked()) },
+              content=fn(c : view::View) -> Unit {
+                let _ = c.row(view::Live::Is(true)).gap(view::Live::Is(6.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
+                let _ = label_by(
+                  c,
+                  fn() {
+                    match s.current_inst() {
+                      Some(i) => if i.name != "" { i.name } else { "Bunker" }
+                      None => "导入 SPT 实例"
+                    }
+                  },
+                  size=14.0,
+                  weight=600,
+                )
+                icon_node(c, icon_chevron_down_data, 14.0, ink_secondary)
+              },
             )
-            chevron_down_icon(trig, ink_secondary)
           },
           fn() { "实例切换与导入" },
           fn(pop : view::View) -> Unit { instance_popover_body(pop, s) },
@@ -74,13 +80,13 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
           fn() { ["启动", "Mod", "存档", "配置"] },
           fn() { model::page_index(s.page.get()) },
           fn(i : Int) -> Unit { s.page.set(model::page_from_index(i)) },
-          width=320.0,
-          height=42.0,
+          width=300.0,
+          height=40.0,
         )
 
         spacer(top)
 
-        // 3. Right Role Selector Popover Capsule + Light/Dark Icon Button
+        // 3. Role Selector Popover (real lg::liquid_button_node trigger)
         let _ = lg::liquid_popover_node(
           top,
           stage,
@@ -88,28 +94,7 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
           fn(v : Bool) -> Unit { s.role_open.set(v) },
           fn() { "切换角色" },
           fn(trig : view::View, _d : headless::Disclosure) -> Unit {
-            let _ = trig
-              .row(view::Live::Is(true))
-              .lines_up(view::Live::Is(Some(view::Along::Middle)))
-              .height(view::Live::Is(Some(42.0)))
-              .padding(view::Live::Is((14.0, 0.0, 14.0, 0.0)))
-              .gap(view::Live::Is(8.0))
-              .radius(view::Live::Is(21.0))
-              .shadow(view::Live::Is(lg::shadow_default))
-              .shadow_outside(view::Live::Is(true))
-              .glass(view::Live::By(fn() { Some(capsule_glass()) }))
-            let _ = trig.box(fn(dot : view::View) -> Unit {
-              let _ = dot
-                .width(view::Live::Is(Some(8.0)))
-                .height(view::Live::Is(Some(8.0)))
-                .shrink(view::Live::Is(0.0))
-                .radius(view::Live::Is(4.0))
-                .ground(view::Live::By(fn() {
-                  let st = s.server.get().state
-                  if st == "ready" { c_green } else if st == "starting" { c_amber } else if st == "crashed" { c_red } else { ink_muted() }
-                }))
-            })
-            let _ = label_by(
+            let _ = lg::liquid_button_node(
               trig,
               fn() {
                 match s.current_character() {
@@ -117,10 +102,34 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
                   None => "选择角色"
                 }
               },
-              size=13.5,
-              weight=600,
+              fn() { s.role_open.set(!s.role_open.untracked()) },
+              content=fn(c : view::View) -> Unit {
+                let _ = c.row(view::Live::Is(true)).gap(view::Live::Is(7.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
+                let _ = c.box(fn(dot : view::View) -> Unit {
+                  let _ = dot
+                    .width(view::Live::Is(Some(8.0)))
+                    .height(view::Live::Is(Some(8.0)))
+                    .shrink(view::Live::Is(0.0))
+                    .radius(view::Live::Is(4.0))
+                    .ground(view::Live::By(fn() {
+                      let st = s.server.get().state
+                      if st == "ready" { c_green } else if st == "starting" { c_amber } else if st == "crashed" { c_red } else { ink_muted() }
+                    }))
+                })
+                let _ = label_by(
+                  c,
+                  fn() {
+                    match s.current_character() {
+                      Some(ch) => "\{ch.shown()} · Lv.\{ch.level}"
+                      None => "选择角色"
+                    }
+                  },
+                  size=13.5,
+                  weight=600,
+                )
+                icon_node(c, icon_chevron_down_data, 14.0, ink_secondary)
+              },
             )
-            chevron_down_icon(trig, ink_secondary)
           },
           fn() { "角色切换" },
           fn(pop : view::View) -> Unit { role_popover_body(pop, s) },
@@ -128,12 +137,35 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
           width=300.0,
         )
 
+        // 4. Light/Dark toggle (small Liquid Glass orb)
         let _ = lg::liquid_icon_button_node(
           top,
           fn() { "切换深浅外观" },
-          fn(ic : view::View, ink : () -> Int64) -> Unit { sun_moon_icon(ic, ink) },
+          fn(ic : view::View, ink : () -> Int64) -> Unit {
+            icon_node(ic, if lg::is_dark() { icon_sun_data } else { icon_moon_data }, 16.0, ink)
+          },
           fn() { lg::set_dark(Some(!lg::is_dark())) },
-          size=lg::LiquidButtonSize::Regular,
+          size=lg::LiquidButtonSize::Small,
+        )
+
+        // 5. Window controls: minimize + close in one small Liquid Glass button group (matching logi-dpi)
+        let _ = lg::liquid_button_group_node(
+          top,
+          fn() {
+            [
+              lg::LiquidGroupAction::new(
+                label=fn() { "最小化" },
+                icon=fn(ic : view::View, ink : () -> Int64) -> Unit { icon_node(ic, icon_minus_data, 16.0, ink) },
+                press=fn() { hostapi::window_act(1) },
+              ),
+              lg::LiquidGroupAction::new(
+                label=fn() { "关闭" },
+                icon=fn(ic : view::View, ink : () -> Int64) -> Unit { icon_node(ic, icon_close_data, 16.0, ink) },
+                press=fn() { hostapi::window_act(3) },
+              ),
+            ]
+          },
+          size=lg::LiquidButtonSize::Small,
         )
       })
 
@@ -178,9 +210,9 @@ fn instance_popover_body(pop : view::View, s : model::Store) -> Unit {
     let _ = label_by(h, fn() { if s.inst_step.get() == 1 { "已管理 SPT 实例" } else { "导入新 SPT 实例" } }, size=14.5, weight=700).grow(view::Live::Is(1.0))
     let _ = h.pick(fn() { s.inst_step.get() }, fn(slot : view::View, st : Int) -> Unit {
       if st == 1 {
-        let _ = inline_pill(slot, fn() { "导入新实例" }, fn() { s.open_import() }, tint=c_cobalt)
+        let _ = glass_action(slot, fn() { "导入新实例" }, fn() { s.open_import() }, tint=c_cobalt, flat=true)
       } else {
-        let _ = inline_pill(slot, fn() { "返回列表" }, fn() { s.inst_step.set(1) })
+        let _ = glass_action(slot, fn() { "返回列表" }, fn() { s.inst_step.set(1) }, flat=true)
       }
     })
   })
@@ -224,7 +256,7 @@ fn instance_popover_body(pop : view::View, s : model::Store) -> Unit {
           edited=fn(p : String) -> Unit { s.probe_path_now(p) },
           submitted=fn(p : String) -> Unit { s.add_instance(p) },
         ).grow(view::Live::Is(1.0))
-        let _ = inline_pill(u, fn() { "导入" }, fn() { s.add_instance(path_field.text()) }, tint=c_cobalt)
+        let _ = glass_action(u, fn() { "导入" }, fn() { s.add_instance(path_field.text()) }, tint=c_cobalt, flat=true)
       })
     }
   })

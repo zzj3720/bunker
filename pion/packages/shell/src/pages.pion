@@ -78,7 +78,7 @@ pub fn snapshots_page(parent : view::View, s : model::Store) -> Unit {
                 )
               })
               let _ = hrow(r, 8.0, fn(act : view::View) -> Unit {
-                let _ = inline_pill(
+                let _ = glass_action(
                   act,
                   fn() { if confirm_restore.get() { "确认回滚" } else { "回滚" } },
                   fn() {
@@ -91,7 +91,7 @@ pub fn snapshots_page(parent : view::View, s : model::Store) -> Unit {
                   },
                   tint=c_cobalt,
                 )
-                let _ = inline_pill(act, fn() { "删除" }, fn() { s.delete_snapshot(sn_sig.untracked().id) }, danger=true)
+                let _ = glass_action(act, fn() { "删除" }, fn() { s.delete_snapshot(sn_sig.untracked().id) }, danger=true)
               })
             })
           },

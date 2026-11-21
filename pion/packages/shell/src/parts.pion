@@ -1,20 +1,17 @@
-// Bunker Liquid Glass design primitives modeled directly on AFK-surf/invar (`packages/lg` + `lg_pages/library.pion`).
-// - 18-layer smooth atmospheric wallpaper (dark obsidian / light warm stone)
-// - Zero content cards: content sits openly on the wallpaper with hairline section headers
-// - Real `lg::*` Liquid Glass controls floating cleanly with zero glass-on-glass
+// Bunker UI helpers built 100% on AFK-surf/invar `lg` components:
+// - ZERO hand-written `paint::Glass`
+// - ZERO hand-written `inline_pill` buttons
+// - Soft airy Light/Dark wallpaper matching invar's optical glass guidelines (zero cards, zero dividers)
 
-import "headless"
 import "lg"
-import "motion"
-import "paint"
 import "view"
 
-/// Deep accessible Monoid Cobalt & Crimson (>= 4.5:1 contrast with white text through translucent glass).
+/// Deep accessible Monoid Cobalt & semantic accents (>= 4.5:1 contrast with white text on tinted glass).
 pub let c_cobalt : Int64 = 0x0052B8FFL
-pub let c_vermilion : Int64 = 0xA62908FFL
+pub let c_vermilion : Int64 = 0xB42318FFL
 pub let c_green : Int64 = 0x30D158FFL
 pub let c_amber : Int64 = 0xFF9F0AFFL
-pub let c_red : Int64 = 0xFF5A52FFL
+pub let c_red : Int64 = 0xFF3B30FFL
 
 pub fn ink_primary() -> Int64 {
   lg::colors().content
@@ -28,12 +25,8 @@ pub fn ink_muted() -> Int64 {
   lg::alpha(lg::colors().content, 0.54)
 }
 
-pub fn hairline_ink() -> Int64 {
-  lg::alpha(lg::colors().content, 0.12)
-}
-
 pub fn well_bg() -> Int64 {
-  if lg::is_dark() { 0x1B1B1FFFL } else { 0xEBEBF0FFL }
+  if lg::is_dark() { 0xFFFFFF0AL } else { 0xFFFFFF88L }
 }
 
 pub fn row_hover_bg() -> Int64 {
@@ -44,34 +37,45 @@ pub fn row_selected_bg() -> Int64 {
   if lg::is_dark() { 0x0088FF26L } else { 0x0088FF18L }
 }
 
-pub fn capsule_glass() -> paint::Glass {
-  let d = lg::is_dark()
-  paint::Glass::liquid(
-    blur=2.1,
-    tint=if d { 0x202020FFL } else { 0xFDFCFD67L },
-    solid=if d { 0x1E1F24FFL } else { 0xFAFAFAFFL },
-    saturation=1.0,
-    rim=0.6,
-    bezel=18.0,
-    refraction=24.0,
-    chroma=0.0,
-    merge=0.0,
-    adaptive=false,
-  )
-}
-
-/// Clean solid native canvas background (dark charcoal / light alabaster, zero gradient blobs).
+/// Soft airy wallpaper for Liquid Glass controls to refract cleanly (matches logi-dpi / invar).
 pub fn bunker_backdrop(parent : view::View) -> Unit {
   let _ = parent.box(fn(paper : view::View) -> Unit {
     let _ = paper
       .over(view::Live::Is(true))
       .clips(view::Live::Is(true))
       .points(view::Live::Is(false))
-      .ground(view::Live::By(fn() { if lg::is_dark() { 0x121215FFL } else { 0xF5F5F7FFL } }))
+      .ground(view::Live::By(fn() { if lg::is_dark() { 0x0A0B10FFL } else { 0xF3F4F7FFL } }))
+    let blots : Array[(Double, Double, Double, Int64, Int64)] = [
+      (-140.0, -180.0, 560.0, 0x7DD3FCFFL, 0x0E7490FFL),
+      (640.0, -220.0, 620.0, 0xC4B5FDFFL, 0x6D28D9FFL),
+      (340.0, 380.0, 620.0, 0x93C5FDFFL, 0x1D4ED8FFL),
+    ]
+    for bi = 0; bi < blots.length(); bi = bi + 1 {
+      let b = blots[bi]
+      let cx = b.0 + b.2 / 2.0
+      let cy = b.1 + b.2 / 2.0
+      let layers = 18
+      for k = 0; k < layers; k = k + 1 {
+        let t = k.to_double() / (layers - 1).to_double()
+        let ld = b.2 * (1.76 - 1.60 * t)
+        let a = 0.020 + 0.022 * t
+        let light = b.3
+        let dark = b.4
+        let _ = paper.box(fn(c : view::View) -> Unit {
+          let _ = c
+            .over(view::Live::Is(true))
+            .width(view::Live::Is(Some(ld)))
+            .height(view::Live::Is(Some(ld)))
+            .radius(view::Live::Is(ld / 2.0))
+            .offset(view::Live::Is((cx - ld / 2.0, cy - ld / 2.0)))
+            .ground(view::Live::By(fn() { lg::alpha(if lg::is_dark() { dark } else { light }, a) }))
+        })
+      }
+    }
   })
 }
 
-/// Clean typographic section header (pure whitespace, no divider hairlines).
+/// Clean typographic section header (zero divider lines).
 pub fn section_head(parent : view::View, title : String, detail~ : () -> String = fn() { "" }) -> Unit {
   let _ = parent.box(fn(r : view::View) -> Unit {
     let _ = r
@@ -108,12 +112,6 @@ pub fn spacer(parent : view::View) -> Unit {
   })
 }
 
-pub fn divider(parent : view::View) -> Unit {
-  let _ = parent.box(fn(d : view::View) -> Unit {
-    let _ = d.height(view::Live::Is(Some(1.0))).ground(view::Live::By(hairline_ink))
-  })
-}
-
 pub fn label(
   parent : view::View,
   text : String,
@@ -140,81 +138,22 @@ pub fn label_by(
   })
 }
 
-/// Compact pill action for dense inline rows and inside glass popovers (zero glass-on-glass).
-pub fn inline_pill(
+/// Compact real Liquid Glass action pill (`lg::liquid_chip_node` on canvas, `lg::liquid_button_node(flat=true)` in popovers).
+pub fn glass_action(
   parent : view::View,
   text : () -> String,
   on_press : () -> Unit,
   tint~ : Int64 = lg::clear,
   danger~ : Bool = false,
+  flat~ : Bool = false,
   disabled~ : () -> Bool = fn() { false },
 ) -> view::View {
-  headless::button(parent, text, fn(_e) -> Unit { on_press() }, disabled=disabled, fn(b : view::View, btn : headless::Button) -> Unit {
-    let hover_t = motion::hover_fade(b, fn() { btn.hovered() && !btn.disabled() })
-    let press_t = motion::hover_fade(b, fn() { btn.pressed() && !btn.disabled() }, duration_ms=motion::pointer_tap_ms)
-    let _ = b
-      .row(view::Live::Is(true))
-      .lines_up(view::Live::Is(Some(view::Along::Middle)))
-      .lies_along(view::Live::Is(view::Lies::Middle))
-      .height(view::Live::Is(Some(30.0)))
-      .shrink(view::Live::Is(0.0))
-      .padding(view::Live::Is((12.0, 0.0, 12.0, 0.0)))
-      .radius(view::Live::Is(15.0))
-      .ground(view::Live::By(fn() {
-        let base = if tint != lg::clear {
-          tint
-        } else if danger {
-          if lg::is_dark() { 0xFF453A26L } else { 0xD92D2018L }
-        } else if lg::is_dark() {
-          0xFFFFFF14L
-        } else {
-          0x0000000DL
-        }
-        let hv = hover_t()
-        let pv = press_t()
-        let ov = if lg::is_dark() { 0xFFFFFF20L } else { 0x00000014L }
-        let h1 = if hv > 0.001 { lg::over(base, lg::alpha(ov, hv)) } else { base }
-        if pv > 0.001 { lg::over(h1, lg::alpha(ov, pv)) } else { h1 }
-      }))
-      .alpha(view::Live::By(fn() { if btn.disabled() { 0.45 } else { 1.0 } }))
-    let _ = b.box(fn(w : view::View) -> Unit {
-      let _ = w
-        .words(view::Live::By(text), look=lg::words_at(12.5, weight=500))
-        .ink(view::Live::By(fn() {
-          if tint != lg::clear {
-            lg::white
-          } else if danger {
-            if lg::is_dark() { 0xFF8A84FFL } else { 0xB42318FFL }
-          } else {
-            ink_primary()
-          }
-        }))
-    })
-  })
-}
-
-pub fn chevron_down_icon(parent : view::View, ink : () -> Int64) -> Unit {
-  let _ = parent.box(fn(ic : view::View) -> Unit {
-    let _ = ic
-      .width(view::Live::Is(Some(12.0)))
-      .height(view::Live::Is(Some(12.0)))
-      .shrink(view::Live::Is(0.0))
-      .shapes(view::Live::By(fn() {
-        let pts : Array[Double] = [2.5, 4.5, 6.0, 8.0, 9.5, 4.5]
-        [paint::shape_of([(pts, false)], stroke=ink(), width=1.6)]
-      }))
-  })
-}
-
-pub fn sun_moon_icon(parent : view::View, ink : () -> Int64) -> Unit {
-  let _ = parent.box(fn(ic : view::View) -> Unit {
-    let _ = ic
-      .width(view::Live::Is(Some(16.0)))
-      .height(view::Live::Is(Some(16.0)))
-      .shrink(view::Live::Is(0.0))
-      .shapes(view::Live::By(fn() {
-        let pts : Array[Double] = [10.5, 3.0, 7.0, 4.2, 5.2, 7.5, 6.4, 11.2, 9.8, 12.8, 12.8, 11.5, 9.8, 11.2, 8.2, 8.2, 9.2, 4.8]
-        [paint::shape_of([(pts, true)], stroke=ink(), width=1.5)]
-      }))
-  })
+  if flat {
+    let t = if tint != lg::clear { tint } else if danger { c_vermilion } else { lg::clear }
+    lg::liquid_button_node(parent, text, on_press, tint=t, flat=true, disabled=disabled)
+  } else if tint != lg::clear {
+    lg::liquid_chip_node(parent, text, on_press, selected=fn() { true }, toggleable=false, disabled=disabled)
+  } else {
+    lg::liquid_chip_node(parent, text, on_press, selected=fn() { false }, toggleable=false, disabled=disabled)
+  }
 }
