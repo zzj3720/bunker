@@ -292,7 +292,10 @@ pub fn wait_ready(inst: &Instance, most: Duration) -> Res<Status> {
 /// started ignoring Ctrl+C, which a launcher's own launcher can pass on). .NET's host takes it as a stop and saves.
 #[cfg(windows)]
 fn ctrl_c(pid: u32) -> bool {
-    use windows_sys::Win32::System::Console::{AttachConsole, FreeConsole, GenerateConsoleCtrlEvent, SetConsoleCtrlHandler, CTRL_BREAK_EVENT};
+    use windows_sys::Win32::System::Console::{
+        AttachConsole, FreeConsole, GenerateConsoleCtrlEvent, SetConsoleCtrlHandler, SetStdHandle,
+        CTRL_BREAK_EVENT, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
     // (this process takes the event it sends to the console it shares for that moment, and does nothing with it: a
     // handler, not "ignore", which its later children would inherit)
     unsafe extern "system" fn swallow(_t: u32) -> i32 {
@@ -311,6 +314,11 @@ fn ctrl_c(pid: u32) -> bool {
         let ok = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, 0) != 0;
         std::thread::sleep(Duration::from_millis(100));
         FreeConsole();
+        // AttachConsole + FreeConsole leaves stale/closed std handles in the PEB, which causes later
+        // Command::spawn() calls inheriting stdio to fail with ERROR_INVALID_HANDLE (os error 6).
+        SetStdHandle(STD_INPUT_HANDLE, std::ptr::null_mut());
+        SetStdHandle(STD_OUTPUT_HANDLE, std::ptr::null_mut());
+        SetStdHandle(STD_ERROR_HANDLE, std::ptr::null_mut());
         ok
     }
 }

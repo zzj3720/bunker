@@ -10,7 +10,7 @@ use crate::util::*;
 use serde::Serialize;
 use serde_json::json;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
@@ -76,7 +76,9 @@ pub fn launch(inst: &Instance, username: &str, password: &str, clean: bool, temp
     let cleaned = if clean { Some(clean_cache(inst, temp)?) } else { None };
     let args = game_args(&token, inst.port);
     let mut cmd = Command::new(inst.game_exe());
-    cmd.current_dir(inst.root_path());
+    // Do not inherit Bunker's stdio handles: on Windows, server::stop() uses AttachConsole + FreeConsole
+    // to deliver Ctrl+Break, which leaves the GUI process's inherited std handles invalid (os error 6).
+    cmd.current_dir(inst.root_path()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
