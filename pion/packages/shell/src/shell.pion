@@ -143,50 +143,36 @@ fn sidebar(sb : view::View, root : view::View, s : model::Store, show_detail : s
   </ui::Col>
 }
 
-fn nav_icon(name : String, color : () -> Int64) -> (view::View, () -> Int64) -> Unit {
-  fn(ic : view::View, _ink : () -> Int64) -> Unit {
-    <icons::Icon in={ic} name={name} size={18.0} color_by={color} />
-  }
-}
-
 fn NavList(parent : view::View, s~ : model::Store, go~ : (model::Page) -> Unit) -> view::View {
   let count = fn(n : Int) -> String { if n > 0 { "\{n}" } else { "" } }
   let at = fn(p : model::Page) -> Bool { model::page_index(s.page.get()) == model::page_index(p) }
-  lg::liquid_list_node(
-    parent,
-    fn() {
-      [
-        lg::LiquidListRow::new(
-          title="启动",
-          icon=nav_icon("play", fn() { lg::surface().accent }),
-          active=at(.Play),
-          on_press=fn() { go(.Play) },
-        ),
-        lg::LiquidListRow::new(
-          title="Mod",
-          value=count(s.mods.get().length()),
-          icon=nav_icon("layers", fn() { 0x5856D6FFL }),
-          active=at(.Mods),
-          on_press=fn() { go(.Mods) },
-        ),
-        lg::LiquidListRow::new(
-          title="存档快照",
-          value=count(s.snapshots.get().length()),
-          icon=nav_icon("archive", fn() { lg::surface().positive }),
-          active=at(.Snapshots),
-          on_press=fn() { go(.Snapshots) },
-        ),
-        lg::LiquidListRow::new(
-          title="配置文件",
-          value=count(s.configs.get().length()),
-          icon=nav_icon("file-text", fn() { lg::surface().warning }),
-          active=at(.Config),
-          on_press=fn() { go(.Config) },
-        ),
-      ]
-    },
-    dividers=false,
-  )
+  <ui::Col in={parent} gap={2.0}>
+    <PlainRow title_by=>{"启动"} icon="play" icon_color=>{lg::surface().accent} active_by=>{at(.Play)} on_press=>{go(.Play)} />
+    <PlainRow
+      title_by=>{"Mod"}
+      value_by=>{count(s.mods.get().length())}
+      icon="layers"
+      icon_color=>{0x5856D6FFL}
+      active_by=>{at(.Mods)}
+      on_press=>{go(.Mods)}
+    />
+    <PlainRow
+      title_by=>{"存档快照"}
+      value_by=>{count(s.snapshots.get().length())}
+      icon="archive"
+      icon_color=>{lg::surface().positive}
+      active_by=>{at(.Snapshots)}
+      on_press=>{go(.Snapshots)}
+    />
+    <PlainRow
+      title_by=>{"配置文件"}
+      value_by=>{count(s.configs.get().length())}
+      icon="file-text"
+      icon_color=>{lg::surface().warning}
+      active_by=>{at(.Config)}
+      on_press=>{go(.Config)}
+    />
+  </ui::Col>
 }
 
 fn inst_name(s : model::Store) -> String {

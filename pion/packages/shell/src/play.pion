@@ -76,31 +76,10 @@ pub fn play_page(pg : view::View, root : view::View, s : model::Store, back : ()
   >
     <ui::Col pad_x={24.0} gap={20.0}>
       <Hero root={root} s={s} />
-      <ui::Box
-        ref_view={fn(v : view::View) {
-          v.pick(fn() { is_narrow(v) }, at_once=true, fn(g : view::View, narrow : Bool) -> Unit {
-            if narrow {
-              <ui::Col in={g} gap={20.0}>
-                <CharacterSection root={root} s={s} />
-                <CompatSection s={s} />
-                <OptionsSection s={s} />
-                <StatusSection s={s} />
-              </ui::Col>
-            } else {
-              <ui::Row in={g} gap={20.0} align={.Start}>
-                <ui::Col width={0.0} grow={1.0} min_width={0.0} gap={20.0}>
-                  <CharacterSection root={root} s={s} />
-                  <CompatSection s={s} />
-                </ui::Col>
-                <ui::Col width={300.0} shrink={0.0} gap={20.0}>
-                  <OptionsSection s={s} />
-                  <StatusSection s={s} />
-                </ui::Col>
-              </ui::Row>
-            }
-          })
-        }}
-      />
+      <ui::Show when=>{s.incompatible().length() > 0} at_once>
+        <CompatAlert s={s} />
+      </ui::Show>
+      <SettingsSection root={root} s={s} />
       <Console s={s} />
       <ui::Spacer height={24.0} />
     </ui::Col>
@@ -125,6 +104,19 @@ fn Hero(parent : view::View, root~ : view::View, s~ : model::Store) -> view::Vie
           ref_view={fn(v : view::View) {
             v.pick(fn() { s.server.get().state }, at_once=true, fn(slot : view::View, st : String) -> Unit {
               <lg::Badge in={slot} label_by=>{server_label(s.server.get())} tone={server_tone(st)} dot />
+            })
+          }}
+        />
+        <ui::Box
+          ref_view={fn(v : view::View) {
+            v.pick(fn() { compat_state(s) }, at_once=true, fn(slot : view::View, st : Int) -> Unit {
+              if st == 2 {
+                <lg::Badge in={slot} label_by=>{"\{s.incompatible().length()} 个 Mod 不兼容"} tone={.Danger} dot />
+              } else if st == 1 {
+                <lg::Badge in={slot} label="Mod 需处理" tone={.Warning} dot />
+              } else {
+                <lg::Badge in={slot} label="Mod 全部兼容" tone={.Success} dot />
+              }
             })
           }}
         />
@@ -223,42 +215,6 @@ fn RolePicker(parent : view::View, root~ : view::View, s~ : model::Store) -> vie
   )
 }
 
-fn CharacterSection(parent : view::View, root~ : view::View, s~ : model::Store) -> view::View {
-  <lg::SurfaceSection in={parent} header="出战角色">
-    <SectionRow>
-      <ui::Col width={0.0} grow={1.0} min_width={0.0} gap={3.0}>
-        <ui::Row align={.Middle} gap={10.0}>
-          <icons::Icon name="user" size={18.0} color_by=>{accent()} />
-          <Label
-            text_by=>{
-              match s.current_character() {
-                Some(c) => "\{c.shown()} · \{c.side} Lv.\{c.level}"
-                None => "未检测到角色存档"
-              }
-            }
-            size={15.0}
-            weight={600}
-            lines={1}
-            grow
-          />
-        </ui::Row>
-        <Label
-          pad_left={28.0}
-          text_by=>{
-            match s.current_character() {
-              Some(c) => "\{c.edition} · \{model::roubles_text(c.roubles)}"
-              None => "首次启动服务端后会自动创建角色"
-            }
-          }
-          size={12.5}
-          secondary
-        />
-      </ui::Col>
-      <RolePicker root={root} s={s} />
-    </SectionRow>
-  </lg::SurfaceSection>
-}
-
 fn compat_state(s : model::Store) -> Int {
   if s.incompatible().length() > 0 {
     return 2
@@ -271,59 +227,26 @@ fn compat_state(s : model::Store) -> Int {
   0
 }
 
-fn CompatSection(parent : view::View, s~ : model::Store) -> view::View {
+/// Only when some enabled client mod is built for another SPT: a compact tinted strip with its fix (step 1 ↔ 2 in place).
+fn CompatAlert(parent : view::View, s~ : model::Store) -> view::View {
   let step = signals::signal(1)
-  <lg::SurfaceSection in={parent} header="依赖与版本校验">
-    <SectionRow>
-      <Label text="Mod 兼容性检查" size={14.5} weight={600} grow />
-      <ui::Box
-        ref_view={fn(v : view::View) {
-          v.pick(fn() { compat_state(s) }, at_once=true, fn(slot : view::View, st : Int) -> Unit {
-            if st == 2 {
-              <lg::Badge in={slot} label="不兼容" tone={.Danger} dot />
-            } else if st == 1 {
-              <lg::Badge in={slot} label="需处理" tone={.Warning} dot />
-            } else {
-              <lg::Badge in={slot} label="全部通过" tone={.Success} dot />
-            }
-          })
-        }}
-      />
-    </SectionRow>
-    <Divider />
-    <ui::Col pad_x={card_pad} pad_y={12.0} gap={12.0}>
+  parent.box(fn(strip : view::View) -> Unit {
+    let _ = strip
+      .radius(view::Live::Is(14.0))
+      .ground(view::Live::By(fn() { lg::surface().danger_bg }))
+      .padding(view::Live::Is((16.0, 14.0, 16.0, 14.0)))
+      .gap(view::Live::Is(6.0))
+    <ui::Row in={strip} align={.Middle} gap={10.0}>
+      <icons::Icon name="alert-triangle" size={18.0} color_by=>{lg::surface().danger} />
       <Label
-        text_by=>{
-          let mods = s.mods.get()
-          let v = spt_of(s)
-          let bad = s.incompatible()
-          if bad.length() > 0 {
-            let lines : Array[String] = ["\{bad.length()} 个客户端 Mod 与 SPT \{v} 不兼容："]
-            for m in bad {
-              lines.push("\{m.name}：\{bad_words(m, v)}")
-            }
-            model::str_join(lines, "\n")
-          } else {
-            let mut checked = 0
-            let mut known = 0
-            for m in mods {
-              if m.dll_status == "compatible" {
-                checked += 1
-              }
-              if m.compat == "ok" {
-                known += 1
-              }
-            }
-            "共 \{mods.length()} 个 Mod：\{checked} 个客户端 DLL 匹配 SPT \{v}，\{known} 个服务端声明兼容。"
-          }
-        }
-        size={13.0}
-        secondary
-        wrap
+        text_by=>{"\{s.incompatible().length()} 个客户端 Mod 与 SPT \{spt_of(s)} 不兼容"}
+        size={14.0}
+        weight={600}
+        grow
       />
       <ui::Box
         ref_view={fn(v : view::View) {
-          v.pick(fn() { if s.incompatible().length() == 0 { 0 } else { step.get() } }, at_once=true, fn(act : view::View, st : Int) -> Unit {
+          v.pick(fn() { step.get() }, at_once=true, fn(act : view::View, st : Int) -> Unit {
             let _ = act.row(view::Live::Is(true)).gap(view::Live::Is(8.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
             if st == 1 {
               <lg::Button in={act} flat height={btn_h} pad_x={12.0} label="安全禁用" on_press=>{safe_disable(s, fn() { step.set(2) })} />
@@ -357,8 +280,7 @@ fn CompatSection(parent : view::View, s~ : model::Store) -> view::View {
                   />
                 },
               )
-            } else if st == 2 {
-              <Label in={act} text="有其他 Mod 依赖它们：" size={13.0} secondary grow />
+            } else {
               <lg::Button in={act} flat height={btn_h} pad_x={12.0} label="取消" on_press=>{step.set(1)} />
               <lg::Button
                 in={act}
@@ -387,8 +309,24 @@ fn CompatSection(parent : view::View, s~ : model::Store) -> view::View {
           })
         }}
       />
-    </ui::Col>
-  </lg::SurfaceSection>
+    </ui::Row>
+    <Label
+      in={strip}
+      pad_left={28.0}
+      text_by=>{
+        let v = spt_of(s)
+        let lines : Array[String] = []
+        for m in s.incompatible() {
+          let dep = if m.required_by.length() > 0 { "（\{m.needed_by()} 依赖它）" } else { "" }
+          lines.push("\{m.name}：\{bad_words(m, v)}\{dep}")
+        }
+        model::str_join(lines, "\n")
+      }
+      size={12.5}
+      secondary
+      wrap
+    />
+  })
 }
 
 fn ToggleRow(parent : view::View, title~ : String, caption~ : String, on_by~ : () -> Bool, on_change~ : (Bool) -> Unit) -> view::View {
@@ -403,8 +341,36 @@ fn ToggleRow(parent : view::View, title~ : String, caption~ : String, on_by~ : (
   </SectionRow>
 }
 
-fn OptionsSection(parent : view::View, s~ : model::Store) -> view::View {
-  <lg::SurfaceSection in={parent} header="启动选项">
+/// One grouped list for everything set before a launch: who plays, and the two launch options.
+fn SettingsSection(parent : view::View, root~ : view::View, s~ : model::Store) -> view::View {
+  <lg::SurfaceSection in={parent} header="启动设置">
+    <SectionRow>
+      <ui::Col width={0.0} grow={1.0} min_width={0.0} gap={2.0}>
+        <Label
+          text_by=>{
+            match s.current_character() {
+              Some(c) => "出战角色：\{c.shown()} · \{c.side} Lv.\{c.level}"
+              None => "出战角色：未检测到角色存档"
+            }
+          }
+          size={14.0}
+          weight={500}
+          lines={1}
+        />
+        <Label
+          text_by=>{
+            match s.current_character() {
+              Some(c) => "\{c.edition} · \{model::roubles_text(c.roubles)}"
+              None => "首次启动服务端后会自动创建角色"
+            }
+          }
+          size={12.0}
+          secondary
+        />
+      </ui::Col>
+      <RolePicker root={root} s={s} />
+    </SectionRow>
+    <Divider />
     <ToggleRow
       title="启动前清理缓存"
       caption="避免旧着色器与本地缓存冲突"
@@ -421,34 +387,6 @@ fn OptionsSection(parent : view::View, s~ : model::Store) -> view::View {
   </lg::SurfaceSection>
 }
 
-fn StatusSection(parent : view::View, s~ : model::Store) -> view::View {
-  <lg::SurfaceSection in={parent} header="实例状态">
-    <KeyValue
-      key="已启用 Mod"
-      value_by=>{
-        let all = s.mods.get()
-        let mut on = 0
-        for m in all {
-          if m.enabled {
-            on += 1
-          }
-        }
-        "\{on} / \{all.length()}"
-      }
-    />
-    <Divider />
-    <KeyValue
-      key="最新快照"
-      value_by=>{
-        let snaps = s.snapshots.get()
-        if snaps.length() > 0 { model::moment_text(snaps[0].created_at, s.tz_offset_min) } else { "暂无" }
-      }
-    />
-    <Divider />
-    <KeyValue key="配置文件" value_by=>{"\{s.configs.get().length()} 个"} />
-  </lg::SurfaceSection>
-}
-
 fn log_ink(level : String) -> Int64 {
   if level == "error" {
     lg::surface().danger
@@ -459,13 +397,8 @@ fn log_ink(level : String) -> Int64 {
   }
 }
 
-/// The server console: a solid disclosure (open while the server runs or has output) over a monospaced log.
+/// The server console: a solid disclosure, collapsed to one row until opened, over a monospaced log.
 fn Console(parent : view::View, s~ : model::Store) -> view::View {
-  let log_open = signals::signal(false)
-  let expanded = fn() -> Bool {
-    let st = s.server.get().state
-    log_open.get() || s.log.get().length() > 0 || st == "starting" || st == "ready"
-  }
   <lg::Disclosure
     in={parent}
     title="服务端控制台"
@@ -474,8 +407,8 @@ fn Console(parent : view::View, s~ : model::Store) -> view::View {
       let n = s.log.get().length()
       if w > 0 { "\{n} 行日志 · \{w} 条警告" } else { "\{n} 行日志" }
     }
-    open_by={expanded}
-    on_toggle={fn(v : Bool) -> Unit { log_open.set(v) }}
+    open_by=>{s.console_open.get()}
+    on_toggle={fn(v : Bool) -> Unit { s.console_open.set(v) }}
   >
     <ui::Col gap={8.0}>
       <ui::Row align={.Middle} gap={8.0}>

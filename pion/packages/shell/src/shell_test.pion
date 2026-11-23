@@ -44,6 +44,21 @@ test "play page: light & dark, wide & narrow" {
   audit_pages(.Play)
 }
 
+test "play page with the console open and with an incompatible mod: light & dark, wide & narrow" {
+  for dark in [false, true] {
+    for w in [1200.0, 720.0] {
+      let s = model::Store::demo()
+      s.console_open.set(true)
+      demo_conflict(s)
+      let t = open_tree(s, dark, w)
+      debug_assert(t.find("清空").is_some(), "console open")
+      debug_assert(t.find("1 个客户端 Mod 与 SPT 4.1.6 不兼容").is_some(), "compat alert shown")
+      lg::assert_apple_ui(t, label="bunker_play_console_conflict_\{dark}_\{w.to_int()}")
+      t.dispose()
+    }
+  }
+}
+
 test "mods page: light & dark, wide & narrow" {
   audit_pages(.Mods)
 }

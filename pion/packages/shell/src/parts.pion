@@ -1,9 +1,11 @@
 // Shared pieces of the Bunker shell, all on invar's `lg` (Apple two-layer: solid Content Layer + floating glass
 // chrome). Colours come only from `lg::surface()`; icons only from invar's `icons` package.
 
+import "headless"
 import "hostapi"
 import "icons"
 import "lg"
+import "ui"
 import "view"
 
 /// Popovers: radius and padding chosen so a 32pt footer button (r=16) sits concentric in the corner (28 - 12 = 16).
@@ -142,4 +144,63 @@ pub fn KeyValue(parent : view::View, key~ : String, value_by~ : () -> String) ->
     <Label text={key} size={13.5} secondary grow />
     <Label text_by={value_by} size={13.5} weight={600} />
   </SectionRow>
+}
+
+/// A plain selectable row straight on a solid surface (sidebar, the config file list): no card around it, only a
+/// rounded tint under the selected row (and a lighter one under the hovered row), as macOS sidebars draw it.
+pub fn PlainRow(
+  parent : view::View,
+  title_by~ : () -> String,
+  subtitle_by? : () -> String,
+  value_by~ : () -> String = fn() { "" },
+  active_by~ : () -> Bool,
+  icon~ : String = "",
+  icon_color~ : () -> Int64 = ink2,
+  radius~ : Double = 8.0,
+  on_press~ : () -> Unit,
+) -> view::View {
+  let has_sub = subtitle_by.is_some()
+  let sub = match subtitle_by {
+    Some(f) => f
+    None => fn() { "" }
+  }
+  headless::button(
+    parent,
+    title_by,
+    fn(_e) -> Unit { on_press() },
+    fn(r : view::View, btn : headless::Button) -> Unit {
+      let _ = r
+        .row(view::Live::Is(true))
+        .lines_up(view::Live::Is(Some(if has_sub { view::Along::Start } else { view::Along::Middle })))
+        .gap(view::Live::Is(10.0))
+        .min_height(view::Live::Is(Some(36.0)))
+        .padding(view::Live::Is((10.0, if has_sub { 8.0 } else { 0.0 }, 10.0, if has_sub { 8.0 } else { 0.0 })))
+        .radius(view::Live::Is(radius))
+        .ground(view::Live::By(fn() {
+          if active_by() {
+            lg::surface().row_selected
+          } else if btn.hovered() {
+            lg::surface().row_hover
+          } else {
+            lg::clear
+          }
+        }))
+      if icon != "" {
+        <icons::Icon in={r} name={icon} size={18.0} color_by={fn() { if active_by() { lg::surface().accent } else { icon_color() } }} />
+      }
+      <ui::Col in={r} width={0.0} grow={1.0} min_width={0.0} gap={2.0}>
+        <Label
+          text_by={title_by}
+          size={14.0}
+          weight={if has_sub { 500 } else { 600 }}
+          lines={if has_sub { 2 } else { 1 }}
+          color_by=>{if active_by() && !has_sub { lg::surface().accent } else { ink() }}
+        />
+        <ui::Show when=>{has_sub && sub() != ""} at_once>
+          <Label text_by={sub} size={12.0} secondary lines={1} />
+        </ui::Show>
+      </ui::Col>
+      <Label in={r} text_by={value_by} size={12.5} secondary />
+    },
+  )
 }

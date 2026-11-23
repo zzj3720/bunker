@@ -34,32 +34,26 @@ pub fn snapshots_page(pg : view::View, s : model::Store, back : () -> Unit) -> U
     trailing={fn(tr : view::View) -> Unit { <WindowPills in={tr} /> }}
   >
     <ui::Col pad_x={24.0} gap={20.0}>
-      <lg::SurfaceCard radius={card_r} pad={card_pad} gap={12.0} label="新建快照">
-        <ui::Row align={.Middle} gap={8.0}>
-          <Label text="新建快照" size={15.0} weight={600} grow />
-          <Label text="回滚时会先自动备份当前存档" size={12.5} secondary />
-        </ui::Row>
-        <ui::Row align={.Middle} gap={10.0}>
-          <ui::Box
-            grow={1.0}
-            min_width={0.0}
-            ref_view={fn(v : view::View) {
-              let _ = lg::liquid_text_field_node(
-                v,
-                note,
-                placeholder="备注，例如：实验室撤离前、更新 Mod 前",
-                label=fn() { "快照备注" },
-                flat=true,
-                show_label=false,
-                clearable=true,
-                submitted=fn(_t : String) -> Unit { take() },
-              )
-            }}
-          />
-          <lg::Button flat prominent height={btn_h} pad_x={14.0} label="立即备份" on_press=>{take()} />
-        </ui::Row>
-      </lg::SurfaceCard>
-      <lg::SurfaceSection header="快照历史" footer_by=>{"共 \{s.snapshots.get().length()} 份 · 服务端运行时不能回滚（它会用内存里的存档覆盖回去）"}>
+      <ui::Row align={.Middle} gap={10.0}>
+        <ui::Box
+          grow={1.0}
+          min_width={0.0}
+          ref_view={fn(v : view::View) {
+            let _ = lg::liquid_text_field_node(
+              v,
+              note,
+              placeholder="新快照的备注，例如：实验室撤离前、更新 Mod 前",
+              label=fn() { "快照备注" },
+              flat=true,
+              show_label=false,
+              clearable=true,
+              submitted=fn(_t : String) -> Unit { take() },
+            )
+          }}
+        />
+        <lg::Button flat prominent height={36.0} pad_x={16.0} label="立即备份" on_press=>{take()} />
+      </ui::Row>
+      <lg::SurfaceSection header="快照历史" footer_by=>{"共 \{s.snapshots.get().length()} 份 · 回滚前会先自动备份当前存档；服务端运行时不能回滚"}>
         <ui::Box
           ref_view={fn(list : view::View) {
             list.show(fn() { s.snapshots.get().length() == 0 }, at_once=true, fn(empty : view::View) -> Unit {
@@ -150,44 +144,60 @@ pub fn config_page(pg : view::View, s : model::Store, back : () -> Unit) -> Unit
       ref_view={fn(split : view::View) {
         // The two panes fill the window under the top bar (60pt) with a 24pt foot, not the page's scroll.
         let _ = split
-          .row(view::Live::Is(true))
-          .gap(view::Live::Is(20.0))
           .padding(view::Live::Is((24.0, 0.0, 24.0, 24.0)))
           .height(view::Live::By(fn() { Some(ui::dmax(420.0, split.window_h() - 60.0)) }))
         split.reacts(fn() { s.config_text.get() }, fn(txt : String) -> Unit {
           editor.set(txt)
           dirty.set(false)
         })
-        let _ = split.box(fn(left : view::View) -> Unit {
+        // One solid surface: the file list and the editor side by side, a 0.5pt hairline between them.
+        let _ = split.box(fn(pane : view::View) -> Unit {
+        let _ = pane
+          .fill()
+          .row(view::Live::Is(true))
+          .radius(view::Live::Is(card_r))
+          .ground(view::Live::By(fn() { lg::surface().card }))
+          .edge(view::Live::By(fn() { (lg::hairline_w, lg::surface().separator) }))
+          .clips(view::Live::Is(true))
+        let _ = pane.box(fn(left : view::View) -> Unit {
           let _ = left
-            .width(view::Live::By(fn() { Some(if is_narrow(left) { 230.0 } else { 280.0 }) }))
+            .width(view::Live::By(fn() { Some(if is_narrow(left) { 230.0 } else { 270.0 }) }))
             .shrink(view::Live::Is(0.0))
             .min_height(view::Live::Is(Some(0.0)))
           let _ = ui::scroll_box(left, fn(c : view::View) -> Unit {
-            let _ = lg::liquid_list_node(
-              c,
-              fn() {
-                let out : Array[lg::LiquidListRow] = []
-                for cf in s.configs.get() {
-                  let p = cf.path
-                  out.push(lg::LiquidListRow::new(
-                    title=model::str_basename(cf.path),
-                    subtitle=cf.owner,
-                    value=model::bytes_text(cf.bytes),
-                    active=s.config_path.get() == p,
-                    on_press=fn() { s.open_config(p) },
-                  ))
-                }
-                out
-              },
-              header=fn() { "配置文件 · \{s.configs.get().length()}" },
-              dividers=false,
-            )
+            <ui::Col in={c} pad={10.0} gap={2.0}>
+              <Label text_by=>{"配置文件 · \{s.configs.get().length()}"} size={12.0} weight={600} secondary pad_left={10.0} />
+              <ui::Spacer height={4.0} />
+            </ui::Col>
+            let _ = c.box(fn(list : view::View) -> Unit {
+              let _ = list.padding(view::Live::Is((10.0, 0.0, 10.0, 10.0))).gap(view::Live::Is(2.0))
+              list.each(
+                fn() { s.configs.get() },
+                fn(cf : model::ConfigFile) -> String { cf.path },
+                fn(slot : view::View, cf : signals::Signal[model::ConfigFile]) -> Unit {
+                  <PlainRow
+                    in={slot}
+                    title_by=>{model::str_basename(cf.get().path)}
+                    subtitle_by=>{"\{cf.get().owner} · \{model::bytes_text(cf.get().bytes)}"}
+                    active_by=>{s.config_path.get() == cf.get().path}
+                    on_press=>{s.open_config(cf.untracked().path)}
+                  />
+                },
+              )
+            })
           })
         })
-        let _ = split.box(fn(right : view::View) -> Unit {
-          let _ = right.fill()
-          let card = lg::surface_card_node(right, fn(c : view::View) -> Unit {
+        let _ = pane.box(fn(sep : view::View) -> Unit {
+          let _ = sep
+            .width(view::Live::Is(Some(lg::hairline_w)))
+            .height_share(view::Live::Is(1.0))
+            .shrink(view::Live::Is(0.0))
+            .ground(view::Live::By(fn() { lg::surface().separator }))
+        })
+        let _ = pane.box(fn(right : view::View) -> Unit {
+          let _ = right.fill().padding(view::Live::Is((card_pad, card_pad, card_pad, card_pad))).gap(view::Live::Is(12.0))
+          let c = right
+          {
             <ui::Row in={c} align={.Middle} gap={8.0}>
               <ui::Col width={0.0} grow={1.0} min_width={0.0} gap={2.0}>
                 <Label
@@ -295,8 +305,8 @@ pub fn config_page(pg : view::View, s : model::Store, back : () -> Unit) -> Unit
                 on_press=>{s.save_config(editor.text())}
               />
             </ui::Row>
-          }, radius=card_r, pad=card_pad, gap=12.0, label=fn() { "配置编辑器" })
-          let _ = card.fill()
+          }
+        })
         })
       }}
     />
