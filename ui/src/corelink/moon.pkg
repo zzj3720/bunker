@@ -1,8 +1,0 @@
-import {
-  "moonbitlang/core/encoding/utf8",
-}
-
-options(
-  targets: { "link_native.mbt": [ "native" ], "link_other.mbt": [ "js", "wasm", "wasm-gc" ] },
-  "native-stub": [ "core_link.c" ],
-)

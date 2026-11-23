@@ -29,4 +29,6 @@ frameworks = [
 ]
 
 [link.windows]
+# MBUI_ENV resource (tools/build-win.sh compiles assets/app.rc) and a GUI app (no console)
+objects = ["../../../out/app.res"]
 flags = ["-mwindows"]

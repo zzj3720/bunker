@@ -1,12 +1,13 @@
-// Play page: macOS 27 Golden Gate HIG layout.
-// - Clean hero header (SPT version + Apple Blue primary launch button)
-// - Calm System Settings-style open rows (Character, Compatibility Check, Launch Options)
-// - Smart collapsible Server Console at the bottom (compact bar when idle, expands when running/opened)
+// The Play page: instance hero with the launch button (the one glass control in the page body), character,
+// compatibility, launch options, instance status, and the server console (a solid disclosure, monospaced log).
 
 import "headless"
+import "icons"
 import "lg"
 import "model"
 import "signals"
+import "text"
+import "ui"
 import "view"
 
 fn spt_of(s : model::Store) -> String {
@@ -19,25 +20,20 @@ fn spt_of(s : model::Store) -> String {
 fn bad_words(m : model::ModItem, spt : String) -> String {
   let parts : Array[String] = []
   for b in m.bad_dlls {
-    parts.push("\{b.shown} (SPT \{b.built_for} ≠ \{spt})")
+    parts.push("\{b.shown}（为 SPT \{b.built_for} 编译，当前 \{spt}）")
   }
-  let dlls = model::str_join(parts, "、")
-  if m.required_by.length() == 0 {
-    dlls
-  } else {
-    "\{dlls} · 被 \{m.needed_by()} 依赖"
-  }
+  model::str_join(parts, "、")
 }
 
 fn server_tone(st : String) -> lg::LiquidTone {
   if st == "ready" {
-    lg::LiquidTone::Success
+    .Success
   } else if st == "starting" {
-    lg::LiquidTone::Warning
+    .Warning
   } else if st == "crashed" {
-    lg::LiquidTone::Danger
+    .Danger
   } else {
-    lg::LiquidTone::Neutral
+    .Neutral
   }
 }
 
@@ -53,475 +49,596 @@ fn server_label(srv : model::ServerStatus) -> String {
   }
 }
 
-pub fn play_page(parent : view::View, host : view::View, s : model::Store) -> Unit {
-  let log_open = signals::signal(false)
-  let _ = parent.box(fn(col : view::View) -> Unit {
-    let _ = col
-      .grow(view::Live::Is(1.0))
-      .min_height(view::Live::Is(Some(0.0)))
-      .gap(view::Live::Is(26.0))
-
-    // ---- 1. Hero Launch Row ----
-    let _ = hrow(col, 16.0, fn(hero : view::View) -> Unit {
-      let _ = hero.box(fn(titles : view::View) -> Unit {
-        let _ = titles.grow(view::Live::Is(1.0)).gap(view::Live::Is(6.0))
-        let _ = hrow(titles, 10.0, fn(tline : view::View) -> Unit {
-          let _ = label_by(
-            tline,
-            fn() {
-              match s.current_inst() {
-                Some(i) => if i.name != "" { i.name } else { i.root }
-                None => "未选择 SPT 实例"
-              }
-            },
-            size=28.0,
-            weight=700,
-          )
-          let _ = tline.pick(fn() { s.server.get().state }, fn(slot : view::View, st : String) -> Unit {
-            let _ = lg::liquid_badge_node(
-              slot,
-              fn() { server_label(s.server.get()) },
-              tone=server_tone(st),
-              dot=true,
-            )
-          })
-        })
-        let _ = label_by(
-          titles,
-          fn() {
-            match s.current_inst() {
-              Some(i) => "EFT \{i.eft_version}  ·  \{i.root}"
-              None => "点击左侧实例菜单导入你的 SPT 目录"
-            }
-          },
-          size=13.0,
-          ink=ink_secondary,
-        )
-      })
-
-      let _ = hero.pick(fn() { s.server.get().state == "ready" || s.server.get().state == "starting" }, fn(slot : view::View, running : Bool) -> Unit {
-        let _ = slot.row(view::Live::Is(true)).gap(view::Live::Is(10.0))
-        if running {
-          let _ = lg::liquid_button_node(slot, fn() { "重启服务端" }, fn() { s.restart_server() })
-          let _ = lg::liquid_button_node(slot, fn() { "停止" }, fn() { s.stop_server() })
-        } else {
-          let _ = lg::liquid_button_node(slot, fn() { "仅启服务端" }, fn() { s.start_server() })
-        }
-      })
-
-      let _ = lg::liquid_popover_node(
-        hero,
-        host,
-        fn() { s.gate_open.get() },
-        fn(v : Bool) -> Unit {
-          s.gate_open.set(v)
-          if !v { s.gate_step.set(1) }
-        },
-        fn() { "一键启动游戏" },
-        fn(trig : view::View, _d : headless::Disclosure) -> Unit {
-          let _ = lg::liquid_button_node(
-            trig,
-            fn() {
-              if s.game.get() == "launching" {
-                "正在启动…"
-              } else if s.game.get() == "running" {
-                "游戏运行中"
-              } else {
-                "一键启动游戏"
-              }
-            },
-            fn() { s.try_launch() },
-            tint=c_cobalt,
-            disabled=fn() { s.game.get() == "launching" || s.current.get() == "" },
-          )
-        },
-        fn() { "启动前兼容拦截" },
-        fn(pop : view::View) -> Unit { gate_popover_body(pop, s) },
-        placement=headless::Placement::BelowEnd,
-        width=400.0,
-      )
-    })
-
-    // ---- 2. Open Two-Column macOS Settings Body (Character & Compatibility left, Options & Summary right) ----
-    let _ = col.box(fn(grid : view::View) -> Unit {
-      let _ = grid.row(view::Live::Is(true)).gap(view::Live::Is(36.0)).lines_up(view::Live::Is(Some(view::Along::Start)))
-
-      // Left column: Character + Compatibility Check
-      let _ = grid.box(fn(left : view::View) -> Unit {
-        let _ = left.grow(view::Live::Is(1.0)).basis(view::Live::Is(Some(0.0))).min_width(view::Live::Is(Some(0.0))).gap(view::Live::Is(24.0))
-
-        // Character row
-        let _ = left.box(fn(ch_sec : view::View) -> Unit {
-          let _ = ch_sec.gap(view::Live::Is(10.0))
-          section_head(ch_sec, "出战角色")
-          let _ = hrow(ch_sec, 12.0, fn(r : view::View) -> Unit {
-            let _ = r
-              .padding(view::Live::Is((16.0, 14.0, 14.0, 14.0)))
-              .radius(view::Live::Is(14.0))
-              .ground(view::Live::By(surface_subtle))
-            let _ = r.box(fn(info : view::View) -> Unit {
-              let _ = info.grow(view::Live::Is(1.0)).gap(view::Live::Is(3.0))
-              let _ = label_by(
-                info,
-                fn() {
-                  match s.current_character() {
-                    Some(c) => "\{c.shown()}  ·  \{c.side} Lv.\{c.level}"
-                    None => "未检测到角色存档"
-                  }
-                },
-                size=15.0,
-                weight=600,
-              )
-              let _ = label_by(
-                info,
-                fn() {
-                  match s.current_character() {
-                    Some(c) => "\{c.edition}  ·  \{model::roubles_text(c.roubles)}"
-                    None => "首次启动服务端后会自动创建角色"
-                  }
-                },
-                size=12.5,
-                ink=ink_secondary,
-              )
-            })
-            let _ = lg::liquid_popover_node(
-              r,
-              host,
-              fn() { s.role_open.get() },
-              fn(v : Bool) -> Unit { s.role_open.set(v) },
-              fn() { "切换角色" },
-              fn(trig : view::View, _d : headless::Disclosure) -> Unit {
-                let _ = glass_action(trig, fn() { "切换" }, fn() { s.role_open.set(!s.role_open.untracked()) })
-              },
-              fn() { "角色切换" },
-              fn(pop : view::View) -> Unit { role_popover_body(pop, s) },
-              placement=headless::Placement::BelowEnd,
-              width=300.0,
-            )
-          })
-        })
-
-        // Compatibility & Deps Check
-        deps_check_section(left, s)
-      })
-
-      // Right column: Launch Options + Instance Summary
-      let _ = grid.box(fn(right : view::View) -> Unit {
-        let _ = right.width(view::Live::Is(Some(320.0))).shrink(view::Live::Is(0.0)).gap(view::Live::Is(24.0))
-
-        let _ = right.box(fn(opts : view::View) -> Unit {
-          let _ = opts.gap(view::Live::Is(10.0))
-          section_head(opts, "启动选项")
-          let _ = opts.box(fn(grp : view::View) -> Unit {
-            let _ = grp
-              .radius(view::Live::Is(14.0))
-              .ground(view::Live::By(surface_subtle))
-              .padding(view::Live::Is((16.0, 14.0, 16.0, 14.0)))
-              .gap(view::Live::Is(16.0))
-            let _ = hrow(grp, 12.0, fn(t1 : view::View) -> Unit {
-              let _ = t1.box(fn(c : view::View) -> Unit {
-                let _ = c.grow(view::Live::Is(1.0)).gap(view::Live::Is(2.0))
-                let _ = label(c, "启动前清理缓存", size=14.0, weight=500)
-                let _ = label(c, "避免旧着色器与本地缓存冲突", size=12.0, ink=ink_muted)
-              })
-              let _ = lg::liquid_toggle_node(
-                t1,
-                fn() { s.clean_cache.get() },
-                fn(on : Bool) -> Unit { s.set_setting("clean_cache", on) },
-                fn() { "启动前清理缓存" },
-              )
-            })
-            let _ = hrow(grp, 12.0, fn(t2 : view::View) -> Unit {
-              let _ = t2.box(fn(c : view::View) -> Unit {
-                let _ = c.grow(view::Live::Is(1.0)).gap(view::Live::Is(2.0))
-                let _ = label(c, "启动后最小化", size=14.0, weight=500)
-                let _ = label(c, "减少后台资源占用", size=12.0, ink=ink_muted)
-              })
-              let _ = lg::liquid_toggle_node(
-                t2,
-                fn() { s.minimize.get() },
-                fn(on : Bool) -> Unit { s.set_setting("minimize", on) },
-                fn() { "启动后最小化" },
-              )
-            })
-          })
-        })
-
-        let _ = right.box(fn(ov : view::View) -> Unit {
-          let _ = ov.gap(view::Live::Is(10.0))
-          section_head(ov, "实例状态")
-          let _ = ov.box(fn(grp : view::View) -> Unit {
-            let _ = grp
-              .radius(view::Live::Is(14.0))
-              .ground(view::Live::By(surface_subtle))
-              .padding(view::Live::Is((16.0, 14.0, 16.0, 14.0)))
-              .gap(view::Live::Is(10.0))
-            let _ = hrow(grp, 8.0, fn(r1 : view::View) -> Unit {
-              let _ = label(r1, "已启用 Mod", size=13.5, ink=ink_secondary).grow(view::Live::Is(1.0))
-              let _ = label_by(
-                r1,
-                fn() {
-                  let all = s.mods.get()
-                  let mut on = 0
-                  for m in all { if m.enabled { on += 1 } }
-                  "\{on} / \{all.length()}"
-                },
-                size=13.5,
-                weight=600,
-              )
-            })
-            let _ = hrow(grp, 8.0, fn(r2 : view::View) -> Unit {
-              let _ = label(r2, "最新快照", size=13.5, ink=ink_secondary).grow(view::Live::Is(1.0))
-              let _ = label_by(
-                r2,
-                fn() {
-                  let snaps = s.snapshots.get()
-                  if snaps.length() > 0 { model::moment_text(snaps[0].created_at, s.tz_offset_min) } else { "暂无" }
-                },
-                size=13.0,
-                weight=500,
-              )
-            })
-            let _ = hrow(grp, 8.0, fn(r3 : view::View) -> Unit {
-              let _ = label(r3, "配置文件", size=13.5, ink=ink_secondary).grow(view::Live::Is(1.0))
-              let _ = label_by(r3, fn() { "\{s.configs.get().length()} 个" }, size=13.0, weight=500)
-            })
-          })
-        })
-      })
-    })
-
-    // ---- 3. Official `lg::liquid_disclosure_node` Server Console (zero glass-on-glass: flat actions inside) ----
-    let expanded = fn() -> Bool {
-      log_open.get() || s.log.get().length() > 0 || s.server.get().state == "starting" || s.server.get().state == "ready"
-    }
-    let _ = lg::liquid_disclosure_node(
-      col,
-      fn() { "服务端控制台" },
-      expanded,
-      fn(v : Bool) -> Unit { log_open.set(v) },
-      fn(log_area : view::View) -> Unit {
-        let _ = log_area.gap(view::Live::Is(8.0))
-        log_area.show(fn() { s.log.get().length() > 0 }, fn(bar : view::View) -> Unit {
-          let _ = hrow(bar, 8.0, fn(r : view::View) -> Unit {
-            let _ = label_by(r, fn() { "\{s.log.get().length()} 行日志" }, size=12.0, ink=ink_muted).grow(view::Live::Is(1.0))
-            r.show(fn() { s.server.get().warns > 0 }, fn(wslot : view::View) -> Unit {
-              let _ = lg::liquid_badge_node(wslot, fn() { "\{s.server.get().warns} 警告" }, tone=lg::LiquidTone::Warning)
-            })
-            let _ = lg::liquid_button_node(r, fn() { "清空" }, fn() { s.log.set([]) }, flat=true, height=28.0, pad_x=10.0)
-          })
-        })
-        let _ = log_area.box(fn(box : view::View) -> Unit {
-          let _ = box.height(view::Live::Is(Some(180.0))).clips(view::Live::Is(true))
-          let _ = box.scrolls(view::Scroll::plain(), fn(sc : view::View) -> Unit {
-            let _ = sc.grow(view::Live::Is(1.0)).gap(view::Live::Is(5.0))
-            sc.show(fn() { s.log.get().length() == 0 }, fn(empty : view::View) -> Unit {
-              let _ = label(empty, "等待服务端输出日志…", size=12.5, ink=ink_muted)
-            })
-            sc.each(
-              fn() { s.log.get() },
-              fn(l : model::LogLine) -> Int { l.n },
-              fn(slot : view::View, line_sig : signals::Signal[model::LogLine]) -> Unit {
-                let _ = slot.box(fn(r : view::View) -> Unit {
-                  let _ = r.row(view::Live::Is(true)).gap(view::Live::Is(10.0)).lines_up(view::Live::Is(Some(view::Along::Start)))
-                  let _ = r.box(fn(tm : view::View) -> Unit {
-                    let _ = tm.words(view::Live::By(fn() { line_sig.get().t }), look=lg::words_at(12.0)).ink(view::Live::By(ink_muted))
-                  })
-                  let _ = r.box(fn(t : view::View) -> Unit {
-                    let _ = t
-                      .grow(view::Live::Is(1.0))
-                      .words(view::Live::By(fn() { line_sig.get().text }), look=lg::words_at(12.5, wrap=true))
-                      .ink(view::Live::By(fn() {
-                        let lv = line_sig.get().level
-                        if lv == "error" {
-                          c_red
-                        } else if lv == "warn" {
-                          c_amber
-                        } else {
-                          ink_primary()
-                        }
-                      }))
-                  })
-                })
-              },
-            )
-          })
-        })
-      },
-      subtitle=fn() { "\{s.log.get().length()} 行日志" },
-    )
-  })
+fn ids_of(list : Array[model::ModItem]) -> Array[String] {
+  let ids : Array[String] = []
+  for m in list {
+    ids.push(m.id)
+  }
+  ids
 }
 
-fn deps_check_section(parent : view::View, s : model::Store) -> Unit {
-  let step = signals::signal(1)
-  let _ = parent.box(fn(sec : view::View) -> Unit {
-    let _ = sec.gap(view::Live::Is(10.0))
-    section_head(sec, "依赖与版本校验")
-    let _ = sec.box(fn(box : view::View) -> Unit {
-      let _ = box
-        .radius(view::Live::Is(14.0))
-        .ground(view::Live::By(surface_subtle))
-        .padding(view::Live::Is((16.0, 14.0, 16.0, 14.0)))
-        .gap(view::Live::Is(10.0))
-      let _ = hrow(box, 8.0, fn(h : view::View) -> Unit {
-        let _ = label(h, "Mod 兼容性检查", size=14.5, weight=600).grow(view::Live::Is(1.0))
-        let _ = h.pick(
-          fn() -> Int {
-            if s.incompatible().length() > 0 {
-              2
+/// Disable the incompatible mods, or (when other mods depend on them) go to the step that asks about dependents.
+fn safe_disable(s : model::Store, ask : () -> Unit) -> Unit {
+  let list = s.incompatible_now()
+  if model::dependents_of(list).length() == 0 {
+    s.disable_mods(ids_of(list), false)
+  } else {
+    ask()
+  }
+}
+
+pub fn play_page(pg : view::View, root : view::View, s : model::Store, back : () -> Unit) -> Unit {
+  <lg::PageShell
+    in={pg}
+    top_edge_blur={true}
+    leading={fn(l : view::View) -> Unit { <PageTitle in={l} title="启动" on_back={back} /> }}
+    trailing={fn(tr : view::View) -> Unit { <WindowPills in={tr} /> }}
+  >
+    <ui::Col pad_x={24.0} gap={20.0}>
+      <Hero root={root} s={s} />
+      <ui::Box
+        ref_view={fn(v : view::View) {
+          v.pick(fn() { is_narrow(v) }, at_once=true, fn(g : view::View, narrow : Bool) -> Unit {
+            if narrow {
+              <ui::Col in={g} gap={20.0}>
+                <CharacterSection root={root} s={s} />
+                <CompatSection s={s} />
+                <OptionsSection s={s} />
+                <StatusSection s={s} />
+              </ui::Col>
             } else {
-              let mut mm = false
-              for m in s.mods.get() { if m.compat == "mismatch" { mm = true; break } }
-              if mm { 1 } else { 0 }
+              <ui::Row in={g} gap={20.0} align={.Start}>
+                <ui::Col width={0.0} grow={1.0} min_width={0.0} gap={20.0}>
+                  <CharacterSection root={root} s={s} />
+                  <CompatSection s={s} />
+                </ui::Col>
+                <ui::Col width={300.0} shrink={0.0} gap={20.0}>
+                  <OptionsSection s={s} />
+                  <StatusSection s={s} />
+                </ui::Col>
+              </ui::Row>
             }
-          },
-          fn(slot : view::View, st : Int) -> Unit {
-            if st == 2 {
-              let _ = lg::liquid_badge_node(slot, fn() { "不兼容" }, tone=lg::LiquidTone::Danger, dot=true)
-            } else if st == 1 {
-              let _ = lg::liquid_badge_node(slot, fn() { "需处理" }, tone=lg::LiquidTone::Warning, dot=true)
+          })
+        }}
+      />
+      <Console s={s} />
+      <ui::Spacer height={24.0} />
+    </ui::Col>
+  </lg::PageShell>
+}
+
+fn Hero(parent : view::View, root~ : view::View, s~ : model::Store) -> view::View {
+  <ui::Row in={parent} align={.Middle} gap={12.0} pad_y={4.0}>
+    <ui::Col width={0.0} grow={1.0} min_width={0.0} gap={6.0}>
+      <ui::Row align={.Middle} gap={10.0} wrap line_gap={6.0}>
+        <Label
+          text_by=>{
+            match s.current_inst() {
+              Some(i) => if i.name != "" { i.name } else { i.root }
+              None => "未选择 SPT 实例"
+            }
+          }
+          size={24.0}
+          weight={700}
+        />
+        <ui::Box
+          ref_view={fn(v : view::View) {
+            v.pick(fn() { s.server.get().state }, at_once=true, fn(slot : view::View, st : String) -> Unit {
+              <lg::Badge in={slot} label_by=>{server_label(s.server.get())} tone={server_tone(st)} dot />
+            })
+          }}
+        />
+      </ui::Row>
+      <Label
+        text_by=>{
+          match s.current_inst() {
+            Some(i) => "EFT \{i.eft_version} · \{i.root}"
+            None => "在左侧实例菜单里导入你的 SPT 目录"
+          }
+        }
+        size={13.0}
+        secondary
+        wrap
+      />
+    </ui::Col>
+    <ui::Box
+      ref_view={fn(v : view::View) {
+        v.pick(
+          fn() { s.server.get().state == "ready" || s.server.get().state == "starting" },
+          at_once=true,
+          fn(slot : view::View, running : Bool) -> Unit {
+            let _ = slot.row(view::Live::Is(true)).gap(view::Live::Is(8.0))
+            if running {
+              <lg::Button in={slot} flat height={btn_h} pad_x={12.0} label="重启服务端" on_press=>{s.restart_server()} />
+              <lg::Button in={slot} flat height={btn_h} pad_x={12.0} label="停止" on_press=>{s.stop_server()} />
             } else {
-              let _ = lg::liquid_badge_node(slot, fn() { "全部通过" }, tone=lg::LiquidTone::Success, dot=true)
+              <lg::Button in={slot} flat height={btn_h} pad_x={12.0} label="仅启服务端" on_press=>{s.start_server()} />
             }
           },
         )
-      })
-      let _ = label_by(
-        box,
-        fn() {
+      }}
+    />
+    <LaunchButton root={root} s={s} />
+  </ui::Row>
+}
+
+/// The launch button (prominent glass) and its compatibility gate popover (step 1 ↔ step 2 in place).
+fn LaunchButton(parent : view::View, root~ : view::View, s~ : model::Store) -> view::View {
+  lg::liquid_popover_node(
+    parent,
+    root,
+    fn() { s.gate_open.get() },
+    fn(v : Bool) -> Unit {
+      s.gate_open.set(v)
+      if !v {
+        s.gate_step.set(1)
+      }
+    },
+    fn() { "一键启动游戏" },
+    fn(trig : view::View, _d : headless::Disclosure) -> Unit {
+      <lg::Button
+        in={trig}
+        prominent
+        height={36.0}
+        pad_x={18.0}
+        label_by=>{
+          let g = s.game.get()
+          if g == "launching" {
+            "正在启动…"
+          } else if g == "running" {
+            "游戏运行中"
+          } else {
+            "一键启动游戏"
+          }
+        }
+        on_press=>{s.try_launch()}
+        disabled_by=>{s.game.get() == "launching" || s.current.get() == ""}
+      />
+    },
+    fn() { "启动前兼容检查" },
+    fn(pop : view::View) -> Unit { gate_popover_body(pop, s) },
+    placement=.BelowEnd,
+    width=420.0,
+    radius=pop_r,
+    pad=pop_pad,
+  )
+}
+
+fn RolePicker(parent : view::View, root~ : view::View, s~ : model::Store) -> view::View {
+  lg::liquid_popover_node(
+    parent,
+    root,
+    fn() { s.role_open.get() },
+    fn(v : Bool) -> Unit { s.role_open.set(v) },
+    fn() { "切换角色" },
+    fn(trig : view::View, _d : headless::Disclosure) -> Unit {
+      <lg::Button in={trig} flat height={36.0} pad_x={14.0} label="切换" on_press=>{s.role_open.set(!s.role_open.untracked())} />
+    },
+    fn() { "选择出战角色" },
+    fn(pop : view::View) -> Unit { role_popover_body(pop, s) },
+    placement=.BelowEnd,
+    width=340.0,
+    radius=pop_r,
+    pad=pop_pad,
+  )
+}
+
+fn CharacterSection(parent : view::View, root~ : view::View, s~ : model::Store) -> view::View {
+  <lg::SurfaceSection in={parent} header="出战角色">
+    <SectionRow>
+      <ui::Col width={0.0} grow={1.0} min_width={0.0} gap={3.0}>
+        <ui::Row align={.Middle} gap={10.0}>
+          <icons::Icon name="user" size={18.0} color_by=>{accent()} />
+          <Label
+            text_by=>{
+              match s.current_character() {
+                Some(c) => "\{c.shown()} · \{c.side} Lv.\{c.level}"
+                None => "未检测到角色存档"
+              }
+            }
+            size={15.0}
+            weight={600}
+            lines={1}
+            grow
+          />
+        </ui::Row>
+        <Label
+          pad_left={28.0}
+          text_by=>{
+            match s.current_character() {
+              Some(c) => "\{c.edition} · \{model::roubles_text(c.roubles)}"
+              None => "首次启动服务端后会自动创建角色"
+            }
+          }
+          size={12.5}
+          secondary
+        />
+      </ui::Col>
+      <RolePicker root={root} s={s} />
+    </SectionRow>
+  </lg::SurfaceSection>
+}
+
+fn compat_state(s : model::Store) -> Int {
+  if s.incompatible().length() > 0 {
+    return 2
+  }
+  for m in s.mods.get() {
+    if m.compat == "mismatch" {
+      return 1
+    }
+  }
+  0
+}
+
+fn CompatSection(parent : view::View, s~ : model::Store) -> view::View {
+  let step = signals::signal(1)
+  <lg::SurfaceSection in={parent} header="依赖与版本校验">
+    <SectionRow>
+      <Label text="Mod 兼容性检查" size={14.5} weight={600} grow />
+      <ui::Box
+        ref_view={fn(v : view::View) {
+          v.pick(fn() { compat_state(s) }, at_once=true, fn(slot : view::View, st : Int) -> Unit {
+            if st == 2 {
+              <lg::Badge in={slot} label="不兼容" tone={.Danger} dot />
+            } else if st == 1 {
+              <lg::Badge in={slot} label="需处理" tone={.Warning} dot />
+            } else {
+              <lg::Badge in={slot} label="全部通过" tone={.Success} dot />
+            }
+          })
+        }}
+      />
+    </SectionRow>
+    <Divider />
+    <ui::Col pad_x={card_pad} pad_y={12.0} gap={12.0}>
+      <Label
+        text_by=>{
           let mods = s.mods.get()
           let v = spt_of(s)
           let bad = s.incompatible()
           if bad.length() > 0 {
             let lines : Array[String] = ["\{bad.length()} 个客户端 Mod 与 SPT \{v} 不兼容："]
-            for m in bad { lines.push(bad_words(m, v)) }
+            for m in bad {
+              lines.push("\{m.name}：\{bad_words(m, v)}")
+            }
             model::str_join(lines, "\n")
           } else {
             let mut checked = 0
             let mut known = 0
             for m in mods {
-              if m.dll_status == "compatible" { checked += 1 }
-              if m.compat == "ok" { known += 1 }
+              if m.dll_status == "compatible" {
+                checked += 1
+              }
+              if m.compat == "ok" {
+                known += 1
+              }
             }
             "共 \{mods.length()} 个 Mod：\{checked} 个客户端 DLL 匹配 SPT \{v}，\{known} 个服务端声明兼容。"
           }
-        },
-        size=13.0,
-        ink=ink_secondary,
-        wrap=true,
-      )
-      let _ = box.pick(
-        fn() { if s.incompatible().length() == 0 { 0 } else { step.get() } },
-        fn(act : view::View, st : Int) -> Unit {
-          let _ = act.row(view::Live::Is(true)).gap(view::Live::Is(8.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
-          if st == 1 {
-            let _ = glass_action(
-              act,
-              fn() { "安全禁用" },
-              fn() {
-                let list = s.incompatible_now()
-                if model::dependents_of(list).length() == 0 {
-                  let ids : Array[String] = []
-                  for m in list { ids.push(m.id) }
-                  s.disable_mods(ids, false)
-                } else {
-                  step.set(2)
+        }
+        size={13.0}
+        secondary
+        wrap
+      />
+      <ui::Box
+        ref_view={fn(v : view::View) {
+          v.pick(fn() { if s.incompatible().length() == 0 { 0 } else { step.get() } }, at_once=true, fn(act : view::View, st : Int) -> Unit {
+            let _ = act.row(view::Live::Is(true)).gap(view::Live::Is(8.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
+            if st == 1 {
+              <lg::Button in={act} flat height={btn_h} pad_x={12.0} label="安全禁用" on_press=>{safe_disable(s, fn() { step.set(2) })} />
+              act.show(
+                fn() {
+                  for m in s.incompatible() {
+                    if m.fix_url != "" {
+                      return true
+                    }
+                  }
+                  false
+                },
+                at_once=true,
+                fn(y : view::View) -> Unit {
+                  <lg::Button
+                    in={y}
+                    flat
+                    prominent
+                    height={btn_h}
+                    pad_x={12.0}
+                    label="一键更新"
+                    on_press=>{
+                      let ids : Array[String] = []
+                      for m in s.incompatible_now() {
+                        if m.fix_url != "" {
+                          ids.push(m.id)
+                        }
+                      }
+                      s.fix_mods(ids)
+                    }
+                  />
+                },
+              )
+            } else if st == 2 {
+              <Label in={act} text="有其他 Mod 依赖它们：" size={13.0} secondary grow />
+              <lg::Button in={act} flat height={btn_h} pad_x={12.0} label="取消" on_press=>{step.set(1)} />
+              <lg::Button
+                in={act}
+                flat
+                height={btn_h}
+                pad_x={12.0}
+                label="仅禁用"
+                on_press=>{
+                  step.set(1)
+                  s.disable_mods(ids_of(s.incompatible_now()), false)
                 }
-              },
-              danger=true,
-            )
-            act.show(
-              fn() {
-                for m in s.incompatible() { if m.fix_url != "" { return true } }
-                false
-              },
-              fn(y : view::View) -> Unit {
-                let _ = glass_action(
-                  y,
-                  fn() { "一键更新" },
-                  fn() {
-                    let ids : Array[String] = []
-                    for m in s.incompatible_now() { if m.fix_url != "" { ids.push(m.id) } }
-                    s.fix_mods(ids)
-                  },
-                  tint=c_cobalt,
-                )
-              },
-            )
-          } else if st == 2 {
-            let _ = glass_action(act, fn() { "取消" }, fn() { step.set(1) })
-            let _ = glass_action(act, fn() { "仅禁用" }, fn() {
-              step.set(1)
-              let ids : Array[String] = []
-              for m in s.incompatible_now() { ids.push(m.id) }
-              s.disable_mods(ids, false)
-            })
-            let _ = glass_action(act, fn() { "连同依赖" }, fn() {
-              step.set(1)
-              let ids : Array[String] = []
-              for m in s.incompatible_now() { ids.push(m.id) }
-              s.disable_mods(ids, true)
-            }, danger=true)
-          }
-        },
-      )
-    })
-  })
+              />
+              <lg::Button
+                in={act}
+                flat
+                tint={lg::surface().danger}
+                height={btn_h}
+                pad_x={12.0}
+                label="连同依赖"
+                on_press=>{
+                  step.set(1)
+                  s.disable_mods(ids_of(s.incompatible_now()), true)
+                }
+              />
+            }
+          })
+        }}
+      />
+    </ui::Col>
+  </lg::SurfaceSection>
 }
 
-fn gate_popover_body(pop : view::View, s : model::Store) -> Unit {
-  let _ = pop.gap(view::Live::Is(12.0))
-  let _ = hrow(pop, 8.0, fn(h : view::View) -> Unit {
-    let _ = label(h, "启动前检测到不兼容 Mod", size=15.0, weight=700).grow(view::Live::Is(1.0))
-    let _ = lg::liquid_badge_node(h, fn() { "SPT \{spt_of(s)}" }, tone=lg::LiquidTone::Danger)
-  })
-  let _ = label_by(
+fn ToggleRow(parent : view::View, title~ : String, caption~ : String, on_by~ : () -> Bool, on_change~ : (Bool) -> Unit) -> view::View {
+  <SectionRow in={parent}>
+    <ui::Col width={0.0} grow={1.0} min_width={0.0} gap={2.0}>
+      <Label text={title} size={14.0} weight={500} />
+      <Label text={caption} size={12.0} secondary wrap />
+    </ui::Col>
+    <ui::Box shrink={0.0}>
+      <lg::Toggle label={title} on_by={on_by} on_change={on_change} />
+    </ui::Box>
+  </SectionRow>
+}
+
+fn OptionsSection(parent : view::View, s~ : model::Store) -> view::View {
+  <lg::SurfaceSection in={parent} header="启动选项">
+    <ToggleRow
+      title="启动前清理缓存"
+      caption="避免旧着色器与本地缓存冲突"
+      on_by=>{s.clean_cache.get()}
+      on_change={fn(on : Bool) -> Unit { s.set_setting("clean_cache", on) }}
+    />
+    <Divider />
+    <ToggleRow
+      title="启动后最小化"
+      caption="减少后台资源占用"
+      on_by=>{s.minimize.get()}
+      on_change={fn(on : Bool) -> Unit { s.set_setting("minimize", on) }}
+    />
+  </lg::SurfaceSection>
+}
+
+fn StatusSection(parent : view::View, s~ : model::Store) -> view::View {
+  <lg::SurfaceSection in={parent} header="实例状态">
+    <KeyValue
+      key="已启用 Mod"
+      value_by=>{
+        let all = s.mods.get()
+        let mut on = 0
+        for m in all {
+          if m.enabled {
+            on += 1
+          }
+        }
+        "\{on} / \{all.length()}"
+      }
+    />
+    <Divider />
+    <KeyValue
+      key="最新快照"
+      value_by=>{
+        let snaps = s.snapshots.get()
+        if snaps.length() > 0 { model::moment_text(snaps[0].created_at, s.tz_offset_min) } else { "暂无" }
+      }
+    />
+    <Divider />
+    <KeyValue key="配置文件" value_by=>{"\{s.configs.get().length()} 个"} />
+  </lg::SurfaceSection>
+}
+
+fn log_ink(level : String) -> Int64 {
+  if level == "error" {
+    lg::surface().danger
+  } else if level == "warn" {
+    lg::surface().warning
+  } else {
+    lg::surface().ink
+  }
+}
+
+/// The server console: a solid disclosure (open while the server runs or has output) over a monospaced log.
+fn Console(parent : view::View, s~ : model::Store) -> view::View {
+  let log_open = signals::signal(false)
+  let expanded = fn() -> Bool {
+    let st = s.server.get().state
+    log_open.get() || s.log.get().length() > 0 || st == "starting" || st == "ready"
+  }
+  <lg::Disclosure
+    in={parent}
+    title="服务端控制台"
+    subtitle_by=>{
+      let w = s.server.get().warns
+      let n = s.log.get().length()
+      if w > 0 { "\{n} 行日志 · \{w} 条警告" } else { "\{n} 行日志" }
+    }
+    open_by={expanded}
+    on_toggle={fn(v : Bool) -> Unit { log_open.set(v) }}
+  >
+    <ui::Col gap={8.0}>
+      <ui::Row align={.Middle} gap={8.0}>
+        <Label text_by=>{s.server.get().message} size={12.5} secondary lines={1} grow />
+        <lg::Button flat height={28.0} pad_x={10.0} label="清空" on_press=>{s.log.set([])} disabled_by=>{s.log.get().length() == 0} />
+      </ui::Row>
+      <ui::Box
+        ref_view={fn(box : view::View) {
+          let _ = box
+            .height(view::Live::Is(Some(200.0)))
+            .radius(view::Live::Is(lg::concentric(22.0, 18.0)))
+            .ground(view::Live::By(fn() { lg::surface().code_bg }))
+            .edge(view::Live::By(fn() { (lg::hairline_w, lg::surface().separator) }))
+            .clips(view::Live::Is(true))
+          let _ = ui::scroll_box(box, fn(sc : view::View) -> Unit {
+            let _ = sc.padding(view::Live::Is((12.0, 10.0, 12.0, 10.0))).gap(view::Live::Is(4.0))
+            sc.show(fn() { s.log.get().length() == 0 }, at_once=true, fn(empty : view::View) -> Unit {
+              <Label in={empty} text="等待服务端输出…" size={12.5} secondary />
+            })
+            sc.each(
+              fn() { s.log.get() },
+              fn(l : model::LogLine) -> Int { l.n },
+              fn(slot : view::View, line : signals::Signal[model::LogLine]) -> Unit {
+                let _ = slot.box(fn(w : view::View) -> Unit {
+                  let _ = w
+                    .words_runs(
+                      view::Live::By(fn() {
+                        let l = line.get()
+                        [
+                          text::Run::{ ..text::plain("\{l.t}  "), mono: true, color: lg::surface().ink_secondary },
+                          text::Run::{ ..text::plain(l.text), mono: true, color: log_ink(l.level) },
+                        ]
+                      }),
+                      look=lg::words_at(12.0, wrap=true),
+                    )
+                    .ink(view::Live::By(ink))
+                })
+              },
+            )
+          })
+        }}
+      />
+    </ui::Col>
+  </lg::Disclosure>
+}
+
+pub fn role_popover_body(pop : view::View, s : model::Store) -> Unit {
+  let _ = pop.gap(view::Live::Is(10.0))
+  <ui::Row in={pop} rigid align={.Middle} gap={8.0} pad_x={4.0}>
+    <Label text="选择出战角色" size={15.0} weight={700} grow />
+    <lg::Badge label_by=>{"\{s.characters.get().length()} 个存档"} tone={.Neutral} />
+  </ui::Row>
+  let _ = lg::liquid_list_node(
     pop,
     fn() {
-      let v = spt_of(s)
-      let lines : Array[String] = []
-      for m in s.incompatible() { lines.push(bad_words(m, v)) }
-      if lines.length() == 0 { "所有不兼容项已处理，可以直接启动。" } else { model::str_join(lines, "\n") }
+      let cur = s.character.get()
+      let out : Array[lg::LiquidListRow] = []
+      for c in s.characters.get() {
+        let name = c.username
+        out.push(lg::LiquidListRow::new(
+          title=c.shown(),
+          subtitle="\{c.edition} · \{model::roubles_text(c.roubles)}",
+          value="\{c.side} Lv.\{c.level}",
+          active=c.username == cur,
+          on_press=fn() {
+            s.character.set(name)
+            s.role_open.set(false)
+          },
+        ))
+      }
+      out
     },
-    size=13.0,
-    ink=ink_secondary,
-    wrap=true,
+    flat=true,
   )
-  let _ = pop.pick(fn() { s.gate_step.get() }, fn(f : view::View, st : Int) -> Unit {
-    let _ = f.row(view::Live::Is(true)).gap(view::Live::Is(8.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
-    if st == 1 {
-      let _ = glass_action(f, fn() { "仍然启动" }, fn() { s.launch_past_gate() }, flat=true)
-      spacer(f)
-      let _ = glass_action(
-        f,
-        fn() { "安全禁用" },
+  <ui::Row in={pop} rigid align={.Middle} gap={8.0}>
+    <Label text="启动游戏时以所选角色登录" size={12.0} secondary grow />
+    <lg::Button flat height={btn_h} pad_x={14.0} label="完成" on_press=>{s.role_open.set(false)} />
+  </ui::Row>
+}
+
+pub fn gate_popover_body(pop : view::View, s : model::Store) -> Unit {
+  let _ = pop.gap(view::Live::Is(10.0))
+  pop.pick(fn() { s.gate_step.get() }, at_once=true, fn(body : view::View, step : Int) -> Unit {
+    let _ = body.gap(view::Live::Is(10.0))
+    if step == 1 {
+      <ui::Row in={body} rigid align={.Middle} gap={8.0} pad_x={4.0}>
+        <Label text="启动前发现不兼容的 Mod" size={15.0} weight={700} grow />
+        <lg::Badge label_by=>{"SPT \{spt_of(s)}"} tone={.Danger} />
+      </ui::Row>
+      let _ = lg::liquid_list_node(
+        body,
         fn() {
-          let list = s.incompatible_now()
-          if model::dependents_of(list).length() == 0 {
-            let ids : Array[String] = []
-            for m in list { ids.push(m.id) }
-            s.disable_mods(ids, false)
-          } else {
-            s.gate_step.set(2)
+          let v = spt_of(s)
+          let out : Array[lg::LiquidListRow] = []
+          for m in s.incompatible() {
+            out.push(lg::LiquidListRow::new(title=m.name, subtitle=bad_words(m, v), value=if m.fix_url != "" { "可更新" } else { "" }))
           }
+          out
         },
-        danger=true,
         flat=true,
       )
+      <Label in={body} text="继续启动可能在加载时报错或闪退。" size={12.5} secondary wrap />
+      <ui::Row in={body} rigid align={.Middle} gap={8.0}>
+        <lg::Button flat height={btn_h} pad_x={12.0} label="仍然启动" on_press=>{s.launch_past_gate()} />
+        <ui::Spacer />
+        <lg::Button flat height={btn_h} pad_x={12.0} label="安全禁用" on_press=>{safe_disable(s, fn() { s.gate_step.set(2) })} />
+        <lg::Button
+          flat
+          prominent
+          height={btn_h}
+          pad_x={12.0}
+          label="一键更新"
+          disabled_by=>{
+            for m in s.incompatible() {
+              if m.fix_url != "" {
+                return false
+              }
+            }
+            true
+          }
+          on_press=>{
+            let ids : Array[String] = []
+            for m in s.incompatible_now() {
+              if m.fix_url != "" {
+                ids.push(m.id)
+              }
+            }
+            s.fix_mods(ids)
+          }
+        />
+      </ui::Row>
     } else {
-      let _ = glass_action(f, fn() { "返回" }, fn() { s.gate_step.set(1) }, flat=true)
-      spacer(f)
-      let _ = glass_action(f, fn() { "仅禁用" }, fn() {
-        let ids : Array[String] = []
-        for m in s.incompatible_now() { ids.push(m.id) }
-        s.disable_mods(ids, false)
-      }, flat=true)
-      let _ = glass_action(f, fn() { "连同依赖" }, fn() {
-        let ids : Array[String] = []
-        for m in s.incompatible_now() { ids.push(m.id) }
-        s.disable_mods(ids, true)
-      }, danger=true, flat=true)
+      <ui::Row in={body} rigid align={.Middle} gap={8.0} pad_x={4.0}>
+        <Label text="还有 Mod 依赖它们" size={15.0} weight={700} grow />
+        <lg::Badge label="步骤 2 / 2" tone={.Warning} />
+      </ui::Row>
+      let _ = lg::liquid_list_node(
+        body,
+        fn() {
+          let out : Array[lg::LiquidListRow] = []
+          for m in s.incompatible() {
+            if m.required_by.length() > 0 {
+              out.push(lg::LiquidListRow::new(title=m.name, subtitle="被 \{m.needed_by()} 依赖"))
+            }
+          }
+          out
+        },
+        flat=true,
+      )
+      <Label in={body} text="只禁用不兼容的 Mod，依赖它的 Mod 加载时可能报错；连同依赖会一起移到 .bunker/disabled。" size={12.5} secondary wrap />
+      <ui::Row in={body} rigid align={.Middle} gap={8.0}>
+        <lg::Button flat height={btn_h} pad_x={12.0} label="返回" on_press=>{s.gate_step.set(1)} />
+        <ui::Spacer />
+        <lg::Button flat height={btn_h} pad_x={12.0} label="仅禁用" on_press=>{s.disable_mods(ids_of(s.incompatible_now()), false)} />
+        <lg::Button
+          flat
+          tint={lg::surface().danger}
+          height={btn_h}
+          pad_x={12.0}
+          label="连同依赖"
+          on_press=>{s.disable_mods(ids_of(s.incompatible_now()), true)}
+        />
+      </ui::Row>
     }
   })
 }

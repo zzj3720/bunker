@@ -22,6 +22,8 @@ cp "$OUT/win-cc.exe" "$OUT/win-c++.exe"
 "$LLVM_BIN/clang.exe" -std=c11 -O2 -fno-asynchronous-unwind-tables -D_CRT_SECURE_NO_WARNINGS -c "$PION_SRC/runtime/pion_rt.c" -o "$OUT/pion_rt.o"
 rm -f "$OUT/libpionrt.a"
 "$LLVM_BIN/llvm-ar.exe" rcs "$OUT/libpionrt.a" "$OUT/pion_rt.o"
+# MBUI_ENV (assets/mbui_env.txt): MBUI_APP_ID=Bunker makes it an app, so the host keeps compiled shaders on disk
+"$LLVM_BIN/llvm-rc.exe" -fo "$(cygpath -w "$OUT/app.res")" "$(cygpath -w "$ROOT/assets/app.rc")"
 
 export CC="$OUT/win-cc.exe"
 export CXX="$OUT/win-c++.exe"

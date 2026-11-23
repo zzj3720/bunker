@@ -1,5 +1,0 @@
-members = [
-  ".",
-  "../vendor/mbui",
-  "../vendor/sf-ui",
-]

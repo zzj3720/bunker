@@ -1,4 +1,8 @@
 // Bunker desktop application entry point (Pion + invar Liquid Glass + Rust bunker_core).
+//
+// The core answers on its own threads; `core_link.c` queues each answer and wakes the window at once
+// (`mb_host_wake_now`). The window drains that queue before each frame (`ui::on_before_frame`): no timer, no polling,
+// nothing runs while nothing arrives.
 
 import "corelink"
 import "host"
@@ -18,11 +22,6 @@ fn drain_core(s : model::Store) -> Unit {
   }
 }
 
-fn poll_loop(root : view::View, s : model::Store) -> Unit {
-  drain_core(s)
-  let _ = root.at_moment(root.cause_at() + 50.0, fn() { poll_loop(root, s) }, later=true)
-}
-
 fn default_data_dir() -> String {
   let d0 = hostapi::env("BUNKER_DATA")
   if d0 != "" {
@@ -38,18 +37,27 @@ fn default_data_dir() -> String {
 fn main() -> Unit {
   host::install()
   lg::set_dark(Some(false))
+  // No system title bar (the page's top row moves the window; minimize / close are the page's own), 960×620 at least.
   hostapi::window_setup(960.0, 620.0, 1200.0, 760.0, true)
+  // Kept out of sight until its first frame is drawn, so it never opens blank or jumps into place.
+  hostapi::window_hold()
   let data_dir = default_data_dir()
   let _ = corelink::init(data_dir)
-  let store = model::Store::new(fn(id : Int64, j : String, b : Bytes) -> Unit {
-    corelink::call(id, j, b)
-  })
+  let store = model::Store::new(fn(id : Int64, j : String, b : Bytes) -> Unit { corelink::call(id, j, b) })
   store.boot(data_dir=data_dir)
   ui::run(
     "Bunker · SPT 启动器",
     fn(root : view::View) -> Unit {
+      let shown = ui::ref_new(false)
+      let _ = ui::on_before_frame(fn() {
+        drain_core(store)
+        if !shown.v {
+          shown.v = true
+          // asked inside a frame, the host shows the window as that frame ends, the page drawn on it
+          hostapi::window_show()
+        }
+      })
       shell::bunker_app(root, store)
-      poll_loop(root, store)
     },
     theme=lg::ui_theme,
   )

@@ -1,10 +1,7 @@
-/vendor/
 /out/
 /dist/
-ui/_build/
-ui/.mooncakes/
 pion/deps/
-shots/
+/shots/
 core/target/
 *.log
 *.exe

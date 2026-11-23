@@ -1,11 +1,13 @@
-// Bunker shell rewritten on latest AFK-surf/invar (41a457b2):
-// - 100% official `packages/lg` components per DESIGN.md & CATALOG.md (zero custom glass surfaces)
-// - macOS 27 Golden Gate edge-to-edge sidebar + neutral content canvas + lg::liquid_nav_bar_node top bar
-// - All popovers mounted on `root` (sibling after `stage`) so they always paint above sidebar & content
-// - Verified by `lg::assert_no_nested_glass` in `shell_test.pion` across all 4 pages in Light & Dark modes
+// Bunker's window on invar `lg` (AFK-surf/invar main 368ff1b), Apple's two layers:
+// - Content Layer: `<lg::SplitShell>` (solid `surface().sidebar` + 0.5pt hairline; sidebar or page below 760pt),
+//   each page a `<lg::PageShell>` (one full-height `ui::scroll_box` gliding under the floating top bar), solid
+//   `SurfaceCard` / `SurfaceSection` / `liquid_list_node(glass=false)` content, flat controls inside.
+// - Glass only floats: the top bar's pills, search / filter bars, the launch button, popovers and the toast.
+// Every popover is an `lg::liquid_popover_node` mounted on `root`; a popover's second step replaces its first in
+// place (never a second popover over it).
 
 import "headless"
-import "hostapi"
+import "icons"
 import "lg"
 import "model"
 import "signals"
@@ -14,378 +16,331 @@ import "view"
 
 fn page_title(p : model::Page) -> String {
   match p {
-    model::Page::Play => "启动"
-    model::Page::Mods => "Mod 管理"
-    model::Page::Snapshots => "存档快照"
-    model::Page::Config => "配置文件"
+    .Play => "启动"
+    .Mods => "Mod 管理"
+    .Snapshots => "存档快照"
+    .Config => "配置文件"
   }
 }
 
+/// The whole window. `root` also hosts the popovers and the toast so they paint above sidebar and page.
 pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
   ui::set_tree_theme(lg::ui_theme)
-  let _ = root.box(fn(stage : view::View) -> Unit {
-    let _ = stage
-      .grow(view::Live::Is(1.0))
-      .row(view::Live::Is(true))
-      .clips(view::Live::Is(true))
-      .ground(view::Live::By(canvas_bg))
-
-    // ======== 1. Edge-to-Edge macOS 27 Golden Gate Sidebar (224px) ========
-    let _ = stage.box(fn(side : view::View) -> Unit {
-      let _ = side
-        .width(view::Live::Is(Some(224.0)))
-        .shrink(view::Live::Is(0.0))
-        .ground(view::Live::By(sidebar_bg))
-        .padding(view::Live::Is((14.0, 14.0, 14.0, 16.0)))
-        .gap(view::Live::Is(14.0))
-
-      // Draggable brand row
-      let _ = side.box(fn(brand : view::View) -> Unit {
-        let _ = brand
-          .moves_window(view::Live::Is(true))
-          .row(view::Live::Is(true))
-          .height(view::Live::Is(Some(32.0)))
-          .padding(view::Live::Is((6.0, 0.0, 6.0, 0.0)))
-          .lines_up(view::Live::Is(Some(view::Along::Middle)))
-          .gap(view::Live::Is(8.0))
-        let _ = label(brand, "Bunker", size=15.5, weight=700)
-        spacer(brand)
-        let _ = label(brand, "SPT", size=11.0, weight=600, ink=ink_muted)
+  // Narrow windows show the sidebar or a page; a page's back island goes back to the sidebar.
+  let show_detail = signals::signal(true)
+  let back = fn() { show_detail.set(false) }
+  <lg::SplitShell
+    in={root}
+    sidebar_width={248.0}
+    show_detail_by=>{show_detail.get()}
+    sidebar={fn(sb : view::View) -> Unit { sidebar(sb, root, s, show_detail) }}
+    detail={fn(dt : view::View) -> Unit {
+      dt.pick(fn() { model::page_index(s.page.get()) }, at_once=true, fn(pg : view::View, idx : Int) -> Unit {
+        let _ = pg.fill()
+        if idx == 1 {
+          mods_page(pg, root, s, back)
+        } else if idx == 2 {
+          snapshots_page(pg, s, back)
+        } else if idx == 3 {
+          config_page(pg, s, back)
+        } else {
+          play_page(pg, root, s, back)
+        }
       })
-
-      // Instance switcher (official lg::liquid_popover_node mounted on `root`, trigger = lg::liquid_button_node)
-      let _ = lg::liquid_popover_node(
-        side,
-        root,
-        fn() { s.inst_open.get() },
-        fn(v : Bool) -> Unit {
-          s.inst_open.set(v)
-          if !v { s.inst_step.set(1) }
-        },
-        fn() { "切换 SPT 实例" },
-        fn(trig : view::View, _d : headless::Disclosure) -> Unit {
-          let _ = lg::liquid_button_node(
-            trig,
-            fn() {
-              match s.current_inst() {
-                Some(i) => if i.name != "" { i.name } else { "Bunker" }
-                None => "导入 SPT 实例"
-              }
-            },
-            fn() { s.inst_open.set(!s.inst_open.untracked()) },
-            height=36.0,
-            pad_x=14.0,
-            content=fn(c : view::View) -> Unit {
-              let _ = c
-                .grow(view::Live::Is(1.0))
-                .row(view::Live::Is(true))
-                .gap(view::Live::Is(6.0))
-                .lines_up(view::Live::Is(Some(view::Along::Middle)))
-              let _ = label_by(
-                c,
-                fn() {
-                  match s.current_inst() {
-                    Some(i) => if i.name != "" { i.name } else { "Bunker" }
-                    None => "导入 SPT 实例"
-                  }
-                },
-                size=13.5,
-                weight=600,
-              ).grow(view::Live::Is(1.0))
-              icon_node(c, icon_chevron_down_data, 14.0, ink_secondary)
-            },
-          ).grow(view::Live::Is(1.0))
-        },
-        fn() { "实例切换与导入" },
-        fn(pop : view::View) -> Unit { instance_popover_body(pop, s) },
-        placement=headless::Placement::BelowStart,
-        width=360.0,
-      )
-
-      // Primary Navigation List (official AFK-surf/monoid 24-grid colorful semantic icons)
-      let _ = side.box(fn(nav : view::View) -> Unit {
-        let _ = nav.gap(view::Live::Is(4.0))
-        sidebar_nav_item(nav, s, model::Page::Play, "启动", icon_play_data, c_cobalt, fn() { "" })
-        sidebar_nav_item(nav, s, model::Page::Mods, "Mod", icon_sliders_data, c_indigo, fn() {
-          let n = s.mods.get().length()
-          if n > 0 { "\{n}" } else { "" }
-        })
-        sidebar_nav_item(nav, s, model::Page::Snapshots, "存档", icon_archive_data, c_green, fn() {
-          let n = s.snapshots.get().length()
-          if n > 0 { "\{n}" } else { "" }
-        })
-        sidebar_nav_item(nav, s, model::Page::Config, "配置", icon_file_text_data, c_orange, fn() {
-          let n = s.configs.get().length()
-          if n > 0 { "\{n}" } else { "" }
-        })
-      })
-
-      spacer(side)
-
-      // Sidebar Footer: Server status indicator + Light/Dark toggle (small glass orb)
-      let _ = hrow(side, 8.0, fn(foot : view::View) -> Unit {
-        let _ = foot.padding(view::Live::Is((6.0, 0.0, 2.0, 0.0)))
-        let _ = foot.box(fn(dot : view::View) -> Unit {
-          let _ = dot
-            .width(view::Live::Is(Some(8.0)))
-            .height(view::Live::Is(Some(8.0)))
-            .shrink(view::Live::Is(0.0))
-            .radius(view::Live::Is(4.0))
-            .ground(view::Live::By(fn() {
-              let st = s.server.get().state
-              if st == "ready" { c_green } else if st == "starting" { c_amber } else if st == "crashed" { c_red } else { ink_muted() }
-            }))
-        })
-        let _ = label_by(
-          foot,
-          fn() {
-            let srv = s.server.get()
-            if srv.state == "ready" {
-              "就绪 :\{srv.port}"
-            } else if srv.state == "starting" {
-              "启动中…"
-            } else if srv.state == "crashed" {
-              "异常退出"
-            } else {
-              "未运行"
-            }
-          },
-          size=12.5,
-          weight=500,
-          ink=ink_secondary,
-        ).grow(view::Live::Is(1.0))
-
-        let _ = lg::liquid_icon_button_node(
-          foot,
-          fn() { "切换深浅外观" },
-          fn(ic : view::View, ink : () -> Int64) -> Unit {
-            icon_node(ic, if lg::is_dark() { icon_sun_data } else { icon_moon_data }, 15.0, ink)
-          },
-          fn() { lg::set_dark(Some(!lg::is_dark())) },
-          size=lg::LiquidButtonSize::Small,
-        )
-      })
-    })
-
-    // Crisp 1px Golden Gate structural edge
-    let _ = stage.box(fn(edge : view::View) -> Unit {
-      let _ = edge.width(view::Live::Is(Some(1.0))).shrink(view::Live::Is(0.0)).ground(view::Live::By(sidebar_edge))
-    })
-
-    // ======== 2. Right Content Canvas ========
-    let _ = stage.box(fn(main_col : view::View) -> Unit {
-      let _ = main_col
-        .grow(view::Live::Is(1.0))
-        .basis(view::Live::Is(Some(0.0)))
-        .min_width(view::Live::Is(Some(0.0)))
-        .min_height(view::Live::Is(Some(0.0)))
-
-      // Official `lg::liquid_nav_bar_node` (transparent layout chrome `glass=false`, draggable `.moves_window`)
-      let _ = main_col.box(fn(bar_wrap : view::View) -> Unit {
-        let _ = bar_wrap.moves_window(view::Live::Is(true)).padding(view::Live::Is((16.0, 8.0, 16.0, 0.0)))
-        let _ = lg::liquid_nav_bar_node(
-          bar_wrap,
-          fn() { page_title(s.page.get()) },
-          height=46.0,
-          glass=false,
-          trailing=fn(t : view::View) -> Unit {
-            let _ = lg::liquid_button_group_node(
-              t,
-              fn() {
-                [
-                  lg::LiquidGroupAction::new(
-                    label=fn() { "最小化" },
-                    icon=fn(ic : view::View, ink : () -> Int64) -> Unit { icon_node(ic, icon_minus_data, 15.0, ink) },
-                    press=fn() { hostapi::window_act(1) },
-                  ),
-                  lg::LiquidGroupAction::new(
-                    label=fn() { "关闭" },
-                    icon=fn(ic : view::View, ink : () -> Int64) -> Unit { icon_node(ic, icon_close_data, 15.0, ink) },
-                    press=fn() { hostapi::window_act(3) },
-                  ),
-                ]
-              },
-              size=lg::LiquidButtonSize::Small,
-            )
-          },
-        )
-      })
-
-      // Active Page Body
-      let _ = main_col.box(fn(body_pad : view::View) -> Unit {
-        let _ = body_pad
-          .grow(view::Live::Is(1.0))
-          .min_height(view::Live::Is(Some(0.0)))
-          .padding(view::Live::Is((28.0, 10.0, 28.0, 24.0)))
-        let _ = body_pad.pick(fn() { model::page_index(s.page.get()) }, fn(body : view::View, idx : Int) -> Unit {
-          let _ = body.grow(view::Live::Is(1.0)).min_height(view::Live::Is(Some(0.0)))
-          if idx == 1 {
-            mods_page(body, root, s)
-          } else if idx == 2 {
-            snapshots_page(body, s)
-          } else if idx == 3 {
-            config_page(body, s)
-          } else {
-            play_page(body, root, s)
-          }
-        })
-      })
-    })
-  })
-
-  // Floating Liquid Toast mounted on `root` (always on top)
-  let _ = root.box(fn(toast_layer : view::View) -> Unit {
-    let _ = toast_layer
+    }}
+  />
+  let _ = root.box(fn(layer : view::View) -> Unit {
+    let _ = layer
       .over(view::Live::Is(true))
       .points(view::Live::Is(false))
       .lines_up(view::Live::Is(Some(view::Along::Middle)))
       .lies_along(view::Live::Is(view::Lies::End))
       .padding(view::Live::Is((0.0, 0.0, 0.0, 22.0)))
-    let _ = lg::liquid_toast_node(
-      toast_layer,
-      fn() { match s.toast.get() { Some(_) => true; None => false } },
-      fn() { match s.toast.get() { Some(t) => t.text; None => "" } },
-      status=lg::LiquidStatus::Info,
-      on_dismiss=fn() { s.dismiss_toast() },
-    )
-  })
-}
-
-fn sidebar_nav_item(
-  parent : view::View,
-  s : model::Store,
-  page : model::Page,
-  title : String,
-  icon_data : String,
-  icon_color : Int64,
-  count : () -> String,
-) -> Unit {
-  let _ = headless::button(
-    parent,
-    fn() { title },
-    fn(_e) -> Unit { s.page.set(page) },
-    fn(r : view::View, btn : headless::Button) -> Unit {
-      let active = fn() -> Bool { model::page_index(s.page.get()) == model::page_index(page) }
-      let _ = r
-        .row(view::Live::Is(true))
-        .height(view::Live::Is(Some(36.0)))
-        .padding(view::Live::Is((10.0, 0.0, 10.0, 0.0)))
-        .gap(view::Live::Is(10.0))
-        .radius(view::Live::Is(10.0))
-        .lines_up(view::Live::Is(Some(view::Along::Middle)))
-        .ground(view::Live::By(fn() {
-          if active() {
-            row_selected_bg()
-          } else if btn.hovered() {
-            row_hover_bg()
-          } else {
-            lg::clear
-          }
-        }))
-      icon_node(r, icon_data, 17.0, fn() { if active() { c_cobalt } else { icon_color } })
-      let _ = label_by(
-        r,
-        fn() { title },
-        size=14.0,
-        weight=600,
-        ink=fn() { if active() { c_cobalt } else { ink_primary() } },
-      ).grow(view::Live::Is(1.0))
-      r.show(fn() { count() != "" }, fn(cnt : view::View) -> Unit {
-        let _ = label_by(cnt, count, size=12.0, weight=500, ink=ink_muted)
-      })
-    },
-  )
-}
-
-fn instance_popover_body(pop : view::View, s : model::Store) -> Unit {
-  let path_field = ui::Field::new()
-  let _ = pop.gap(view::Live::Is(10.0))
-  let _ = hrow(pop, 8.0, fn(h : view::View) -> Unit {
-    let _ = label_by(h, fn() { if s.inst_step.get() == 1 { "已管理 SPT 实例" } else { "导入新 SPT 实例" } }, size=14.5, weight=700).grow(view::Live::Is(1.0))
-    let _ = h.pick(fn() { s.inst_step.get() }, fn(slot : view::View, st : Int) -> Unit {
-      if st == 1 {
-        let _ = lg::liquid_button_node(slot, fn() { "导入新实例" }, fn() { s.open_import() }, tint=c_cobalt, flat=true, height=30.0, pad_x=12.0)
-      } else {
-        let _ = lg::liquid_button_node(slot, fn() { "返回列表" }, fn() { s.inst_step.set(1) }, flat=true, height=30.0, pad_x=12.0)
+    <lg::Toast
+      in={layer}
+      visible_by=>{s.toast.get().is_some()}
+      title_by=>{
+        match s.toast.get() {
+          Some(t) => t.text
+          None => ""
+        }
       }
-    })
+      status={.Info}
+      on_dismiss=>{s.dismiss_toast()}
+    />
   })
-  let _ = pop.pick(fn() { s.inst_step.get() }, fn(body : view::View, st : Int) -> Unit {
-    let _ = body.gap(view::Live::Is(6.0))
-    if st == 1 {
-      body.each(
-        fn() { s.instances.get() },
-        fn(i : model::Inst) -> String { i.root },
-        fn(slot : view::View, inst_sig : signals::Signal[model::Inst]) -> Unit {
-          let _ = headless::button(
-            slot,
-            fn() { inst_sig.get().name },
-            fn(_e) -> Unit { s.select_instance(inst_sig.untracked().root) },
-            fn(r : view::View, btn : headless::Button) -> Unit {
-              let active = fn() -> Bool { s.current.get() == inst_sig.get().root }
-              let _ = r
-                .padding(view::Live::Is((10.0, 9.0, 10.0, 9.0)))
-                .radius(view::Live::Is(10.0))
-                .gap(view::Live::Is(2.0))
-                .ground(view::Live::By(fn() {
-                  if active() { row_selected_bg() } else if btn.hovered() { row_hover_bg() } else { lg::clear }
-                }))
-              let _ = hrow(r, 6.0, fn(top : view::View) -> Unit {
-                let _ = label_by(top, fn() { inst_sig.get().name }, size=14.0, weight=600).grow(view::Live::Is(1.0))
-                let _ = lg::liquid_badge_node(top, fn() { "SPT \{inst_sig.get().spt_version}" }, tone=lg::LiquidTone::Success)
+}
+
+fn sidebar(sb : view::View, root : view::View, s : model::Store, show_detail : signals::Signal[Bool]) -> Unit {
+  let go = fn(p : model::Page) -> Unit {
+    s.page.set(p)
+    show_detail.set(true)
+  }
+  <ui::Col in={sb} fill pad_x={14.0} pad_y={10.0} gap={14.0}>
+    <ui::Row moves_window rigid height={44.0} align={.Middle} gap={8.0} pad_x={6.0}>
+      <icons::Icon name="shield" size={20.0} color_by=>{accent()} />
+      <Label text="Bunker" size={17.0} weight={700} grow />
+      <Label text="SPT 启动器" size={12.0} secondary />
+    </ui::Row>
+    <InstancePicker root={root} s={s} />
+    <NavList s={s} go={go} />
+    <ui::Spacer />
+    <ui::Row rigid align={.Middle} gap={8.0} pad_x={6.0}>
+      <ui::Box
+        width={8.0}
+        height={8.0}
+        radius={4.0}
+        shrink={0.0}
+        bg_by=>{
+          let st = s.server.get().state
+          if st == "ready" {
+            lg::surface().positive
+          } else if st == "starting" {
+            lg::surface().warning
+          } else if st == "crashed" {
+            lg::surface().danger
+          } else {
+            ink2()
+          }
+        }
+      />
+      <Label
+        text_by=>{
+          let srv = s.server.get()
+          if srv.state == "ready" {
+            "服务端就绪 :\{srv.port}"
+          } else if srv.state == "starting" {
+            "服务端启动中…"
+          } else if srv.state == "crashed" {
+            "服务端异常退出"
+          } else {
+            "服务端未运行"
+          }
+        }
+        size={12.5}
+        secondary
+        grow
+      />
+      <ui::Box
+        ref_view={fn(v : view::View) {
+          let _ = lg::liquid_button_node(
+            v,
+            fn() { if lg::is_dark() { "切换为浅色外观" } else { "切换为深色外观" } },
+            fn() { lg::set_dark(Some(!lg::is_dark())) },
+            flat=true,
+            ghost=true,
+            height=32.0,
+            pad_x=10.0,
+            content=fn(c : view::View) -> Unit {
+              c.pick(fn() { lg::is_dark() }, at_once=true, fn(slot : view::View, dark : Bool) -> Unit {
+                <icons::Icon in={slot} name={if dark { "sun" } else { "moon" }} size={16.0} color_by=>{ink()} />
               })
-              let _ = label_by(r, fn() { inst_sig.get().root }, size=11.5, ink=ink_muted)
             },
           )
-        },
-      )
-    } else {
-      let _ = hrow(body, 8.0, fn(u : view::View) -> Unit {
-        let _ = lg::liquid_search_bar_node(
-          u,
-          path_field,
-          placeholder="输入目录路径，如 C:\\Games\\SPT-4.1.6",
-          label=fn() { "实例路径" },
-          flat=true,
-          edited=fn(p : String) -> Unit { s.probe_path_now(p) },
-          submitted=fn(p : String) -> Unit { s.add_instance(p) },
-        ).grow(view::Live::Is(1.0))
-        let _ = lg::liquid_button_node(u, fn() { "导入" }, fn() { s.add_instance(path_field.text()) }, tint=c_cobalt, flat=true, height=32.0, pad_x=12.0)
-      })
-    }
-  })
+        }}
+      />
+    </ui::Row>
+  </ui::Col>
 }
 
-pub fn role_popover_body(pop : view::View, s : model::Store) -> Unit {
-  let _ = pop.gap(view::Live::Is(10.0))
-  let _ = label(pop, "选择出战角色", size=14.5, weight=700)
-  pop.each(
-    fn() { s.characters.get() },
-    fn(c : model::Character) -> String { c.username },
-    fn(slot : view::View, c_sig : signals::Signal[model::Character]) -> Unit {
-      let _ = headless::button(
-        slot,
-        fn() { c_sig.get().shown() },
-        fn(_e) -> Unit {
-          s.character.set(c_sig.untracked().username)
-          s.role_open.set(false)
-        },
-        fn(r : view::View, btn : headless::Button) -> Unit {
-          let active = fn() -> Bool { s.character.get() == c_sig.get().username }
-          let _ = r
-            .padding(view::Live::Is((10.0, 9.0, 10.0, 9.0)))
-            .radius(view::Live::Is(10.0))
-            .gap(view::Live::Is(2.0))
-            .ground(view::Live::By(fn() {
-              if active() { row_selected_bg() } else if btn.hovered() { row_hover_bg() } else { lg::clear }
-            }))
-          let _ = hrow(r, 6.0, fn(top : view::View) -> Unit {
-            let _ = label_by(top, fn() { c_sig.get().shown() }, size=14.0, weight=600).grow(view::Live::Is(1.0))
-            let _ = lg::liquid_badge_node(top, fn() { "\{c_sig.get().side} Lv.\{c_sig.get().level}" }, tone=lg::LiquidTone::Accent)
-          })
-          let _ = label_by(r, fn() { "\{c_sig.get().edition} · \{model::roubles_text(c_sig.get().roubles)}" }, size=12.0, ink=ink_muted)
-        },
-      )
+fn nav_icon(name : String, color : () -> Int64) -> (view::View, () -> Int64) -> Unit {
+  fn(ic : view::View, _ink : () -> Int64) -> Unit {
+    <icons::Icon in={ic} name={name} size={18.0} color_by={color} />
+  }
+}
+
+fn NavList(parent : view::View, s~ : model::Store, go~ : (model::Page) -> Unit) -> view::View {
+  let count = fn(n : Int) -> String { if n > 0 { "\{n}" } else { "" } }
+  let at = fn(p : model::Page) -> Bool { model::page_index(s.page.get()) == model::page_index(p) }
+  lg::liquid_list_node(
+    parent,
+    fn() {
+      [
+        lg::LiquidListRow::new(
+          title="启动",
+          icon=nav_icon("play", fn() { lg::surface().accent }),
+          active=at(.Play),
+          on_press=fn() { go(.Play) },
+        ),
+        lg::LiquidListRow::new(
+          title="Mod",
+          value=count(s.mods.get().length()),
+          icon=nav_icon("layers", fn() { 0x5856D6FFL }),
+          active=at(.Mods),
+          on_press=fn() { go(.Mods) },
+        ),
+        lg::LiquidListRow::new(
+          title="存档快照",
+          value=count(s.snapshots.get().length()),
+          icon=nav_icon("archive", fn() { lg::surface().positive }),
+          active=at(.Snapshots),
+          on_press=fn() { go(.Snapshots) },
+        ),
+        lg::LiquidListRow::new(
+          title="配置文件",
+          value=count(s.configs.get().length()),
+          icon=nav_icon("file-text", fn() { lg::surface().warning }),
+          active=at(.Config),
+          on_press=fn() { go(.Config) },
+        ),
+      ]
     },
+    dividers=false,
   )
+}
+
+fn inst_name(s : model::Store) -> String {
+  match s.current_inst() {
+    Some(i) => if i.name != "" { i.name } else { i.root }
+    None => "导入 SPT 实例"
+  }
+}
+
+/// The sidebar's instance picker: a flat button opening the instance popover (list ↔ import, one popover).
+fn InstancePicker(parent : view::View, root~ : view::View, s~ : model::Store) -> view::View {
+  lg::liquid_popover_node(
+    parent,
+    root,
+    fn() { s.inst_open.get() },
+    fn(v : Bool) -> Unit {
+      s.inst_open.set(v)
+      if !v {
+        s.inst_step.set(1)
+      }
+    },
+    fn() { "切换 SPT 实例" },
+    fn(trig : view::View, _d : headless::Disclosure) -> Unit {
+      let _ = lg::liquid_button_node(
+        trig,
+        fn() { inst_name(s) },
+        fn() { s.inst_open.set(!s.inst_open.untracked()) },
+        flat=true,
+        height=40.0,
+        pad_x=12.0,
+        content=fn(c : view::View) -> Unit {
+          let _ = c.grow(view::Live::Is(1.0)).row(view::Live::Is(true)).gap(view::Live::Is(8.0)).lines_up(view::Live::Is(Some(view::Along::Middle)))
+          <icons::Icon in={c} name="server" size={16.0} color_by=>{ink2()} />
+          <Label in={c} text_by=>{inst_name(s)} size={13.5} weight={600} lines={1} grow />
+          <icons::Icon in={c} name="chevrons-up-down" size={14.0} color_by=>{ink2()} />
+        },
+      ).grow(view::Live::Is(1.0))
+    },
+    fn() { "SPT 实例" },
+    fn(pop : view::View) -> Unit { instance_popover_body(pop, s) },
+    placement=.BelowStart,
+    width=380.0,
+    radius=pop_r,
+    pad=pop_pad,
+  )
+}
+
+fn inst_row(i : model::Inst, current : String, on_press : () -> Unit) -> lg::LiquidListRow {
+  lg::LiquidListRow::new(
+    title=if i.name != "" { i.name } else { model::str_basename(i.root) },
+    subtitle=i.root,
+    value="SPT \{i.spt_version}",
+    active=i.root == current,
+    on_press=on_press,
+  )
+}
+
+pub fn instance_popover_body(pop : view::View, s : model::Store) -> Unit {
+  let path_field = ui::Field::new()
+  let _ = pop.gap(view::Live::Is(10.0))
+  pop.pick(fn() { s.inst_step.get() }, at_once=true, fn(body : view::View, step : Int) -> Unit {
+    let _ = body.gap(view::Live::Is(14.0))
+    if step == 1 {
+      <ui::Row in={body} rigid align={.Middle} gap={8.0} pad_x={4.0}>
+        <Label text="SPT 实例" size={15.0} weight={700} grow />
+        <lg::Badge label_by=>{"\{s.instances.get().length()} 个"} tone={.Neutral} />
+      </ui::Row>
+      let _ = lg::liquid_list_node(
+        body,
+        fn() {
+          let cur = s.current.get()
+          let out : Array[lg::LiquidListRow] = []
+          for i in s.instances.get() {
+            let root = i.root
+            out.push(inst_row(i, cur, fn() {
+              s.select_instance(root)
+              s.inst_open.set(false)
+            }))
+          }
+          out
+        },
+        flat=true,
+      )
+      <ui::Row in={body} rigid align={.Middle} gap={8.0}>
+        <Label text="切换后重新读取 Mod、存档与配置" size={12.0} secondary grow />
+        <lg::Button flat prominent height={btn_h} pad_x={14.0} label="导入新实例" on_press=>{s.open_import()} />
+      </ui::Row>
+    } else {
+      <ui::Row in={body} rigid align={.Middle} gap={8.0} pad_x={4.0}>
+        <Label text="导入 SPT 实例" size={15.0} weight={700} grow />
+        <lg::Badge label="步骤 2 / 2" tone={.Accent} />
+      </ui::Row>
+      let _ = lg::liquid_text_field_node(
+        body,
+        path_field,
+        placeholder="SPT 根目录，如 C:\\Games\\SPT-4.1.6",
+        label=fn() { "实例目录" },
+        flat=true,
+        show_label=false,
+        edited=fn(p : String) -> Unit { s.probe_path_now(p) },
+        submitted=fn(p : String) -> Unit { s.add_instance(p) },
+      )
+      body.show(fn() { s.probe.get().is_some() }, at_once=true, fn(pr : view::View) -> Unit {
+        <ui::Row in={pr} align={.Middle} gap={8.0} pad_x={4.0}>
+          <lg::Badge
+            label_by=>{
+              match s.probe.get() {
+                Some(i) => if i.valid { "可导入" } else { "不完整" }
+                None => ""
+              }
+            }
+            tone={.Success}
+            dot
+          />
+          <Label
+            text_by=>{
+              match s.probe.get() {
+                Some(i) => "SPT \{i.spt_version} · EFT \{i.eft_version}"
+                None => ""
+              }
+            }
+            size={12.5}
+            secondary
+            grow
+          />
+        </ui::Row>
+      })
+      body.show(fn() { s.found.get().length() > 0 }, at_once=true, fn(fd : view::View) -> Unit {
+        let _ = lg::liquid_list_node(
+          fd,
+          fn() {
+            let out : Array[lg::LiquidListRow] = []
+            for i in s.found.get() {
+              let root = i.root
+              out.push(inst_row(i, "", fn() { s.add_instance(root) }))
+            }
+            out
+          },
+          header=fn() { "在本机找到的 SPT" },
+          flat=true,
+        )
+      })
+      <ui::Row in={body} rigid align={.Middle} gap={8.0}>
+        <lg::Button flat height={btn_h} pad_x={14.0} label="返回" on_press=>{s.inst_step.set(1)} />
+        <ui::Spacer />
+        <lg::Button
+          flat
+          prominent
+          height={btn_h}
+          pad_x={14.0}
+          label="导入"
+          on_press=>{s.add_instance(path_field.text())}
+        />
+      </ui::Row>
+    }
+  })
 }

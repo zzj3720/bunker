@@ -4,11 +4,11 @@ version = "0.1.0"
 
 [dependencies]
 signals = { path = "../../deps/invar/packages/signals" }
-paint = { path = "../../deps/invar/packages/paint" }
 view = { path = "../../deps/invar/packages/view" }
 ui = { path = "../../deps/invar/packages/ui" }
+text = { path = "../../deps/invar/packages/text" }
 headless = { path = "../../deps/invar/packages/headless" }
-motion = { path = "../../deps/invar/packages/motion" }
+icons = { path = "../../deps/invar/packages/icons" }
 lg = { path = "../../deps/invar/packages/lg" }
 hostapi = { path = "../../deps/invar/packages/hostapi" }
 model = { path = "../model" }

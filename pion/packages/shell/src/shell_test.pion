@@ -1,40 +1,149 @@
-// Automated Invar Liquid Glass audit gate tests (`lg::assert_no_nested_glass` + `unasked_faults`)
-// across all 4 Bunker pages in both Light and Dark themes.
+// Apple two-layer UI gates (`lg::assert_apple_ui`: zero nested glass, content-layer glass <= 45%, zero scroll
+// faults, `assert_ui_craft` with the concentric-corner, hit-target, overflow and alignment gates) over every page in
+// light and dark, wide (1200×760) and narrow (720×760), and over every popover step opened.
 
 import "lg"
 import "model"
 import "ui"
 import "view"
 
-fn audit_page(page : model::Page, dark : Bool, label : String) -> Unit {
+fn page_name(p : model::Page) -> String {
+  match p {
+    .Play => "play"
+    .Mods => "mods"
+    .Snapshots => "snapshots"
+    .Config => "config"
+  }
+}
+
+fn open_tree(s : model::Store, dark : Bool, w : Double) -> ui::Tester {
   lg::set_dark(Some(dark))
+  let t = ui::Tester::tree(fn(root : view::View) -> Unit { bunker_app(root, s) }, width=w, height=760.0, theme=lg::ui_theme)
+  // let popovers and disclosures finish opening
+  t.run_for(800.0)
+  t
+}
+
+fn audit_page(page : model::Page, dark : Bool, w : Double) -> Unit {
   let s = model::Store::demo()
   s.page.set(page)
-  let t = ui::Tester::tree(
-    fn(root : view::View) -> Unit { bunker_app(root, s) },
-    width=1200.0,
-    height=760.0,
-    theme=lg::ui_theme,
+  let t = open_tree(s, dark, w)
+  let label = "bunker_\{page_name(page)}_\{if dark { "dark" } else { "light" }}_\{w.to_int()}"
+  lg::assert_apple_ui(t, label=label)
+  t.dispose()
+}
+
+fn audit_pages(page : model::Page) -> Unit {
+  audit_page(page, false, 1200.0)
+  audit_page(page, true, 1200.0)
+  audit_page(page, false, 720.0)
+  audit_page(page, true, 720.0)
+}
+
+test "play page: light & dark, wide & narrow" {
+  audit_pages(.Play)
+}
+
+test "mods page: light & dark, wide & narrow" {
+  audit_pages(.Mods)
+}
+
+test "snapshots page: light & dark, wide & narrow" {
+  audit_pages(.Snapshots)
+}
+
+test "config page: light & dark, wide & narrow" {
+  audit_pages(.Config)
+}
+
+test "narrow window: back island shows the sidebar, a nav row brings the page back" {
+  for dark in [false, true] {
+    let s = model::Store::demo()
+    let t = open_tree(s, dark, 720.0)
+    debug_assert(t.find("启动").is_some(), "play page title shown")
+    t.press("Bunker")
+    t.run_for(400.0)
+    debug_assert(t.find("SPT 4.1.6 主力档").is_some(), "sidebar shows the instance picker")
+    lg::assert_apple_ui(t, label="bunker_sidebar_narrow_\{dark}")
+    t.press("Mod")
+    t.run_for(400.0)
+    debug_assert(t.find("Mod 管理").is_some(), "mods page after pressing its nav row")
+    t.dispose()
+  }
+}
+
+fn audit_popover(name : String, page : model::Page, setup : (model::Store) -> Unit, expect : String) -> Unit {
+  for dark in [false, true] {
+    let s = model::Store::demo()
+    s.page.set(page)
+    setup(s)
+    let t = open_tree(s, dark, 1200.0)
+    debug_assert(t.find(expect).is_some(), "popover \{name} shows \"\{expect}\"")
+    lg::assert_apple_ui(t, label="bunker_popover_\{name}_\{if dark { "dark" } else { "light" }}", allow_large_overlay=true)
+    t.dispose()
+  }
+}
+
+test "instance popover: list step and import step" {
+  audit_popover("instance_step1", .Play, fn(s : model::Store) -> Unit { s.inst_open.set(true) }, "导入新实例")
+  audit_popover(
+    "instance_step2",
+    .Play,
+    fn(s : model::Store) -> Unit {
+      demo_import(s)
+      s.inst_open.set(true)
+    },
+    "在本机找到的 SPT",
   )
-  lg::assert_no_nested_glass(t, label=label)
 }
 
-test "bunker play light & dark zero nested glass" {
-  audit_page(model::Page::Play, false, "bunker_play_light")
-  audit_page(model::Page::Play, true, "bunker_play_dark")
+test "role popover" {
+  audit_popover("role", .Play, fn(s : model::Store) -> Unit { s.role_open.set(true) }, "选择出战角色")
 }
 
-test "bunker mods light & dark zero nested glass" {
-  audit_page(model::Page::Mods, false, "bunker_mods_light")
-  audit_page(model::Page::Mods, true, "bunker_mods_dark")
+test "launch gate popover: incompatible step and dependents step" {
+  audit_popover(
+    "gate_step1",
+    .Play,
+    fn(s : model::Store) -> Unit {
+      demo_conflict(s)
+      s.gate_open.set(true)
+    },
+    "仍然启动",
+  )
+  audit_popover(
+    "gate_step2",
+    .Play,
+    fn(s : model::Store) -> Unit {
+      demo_conflict(s)
+      s.gate_step.set(2)
+      s.gate_open.set(true)
+    },
+    "还有 Mod 依赖它们",
+  )
 }
 
-test "bunker snapshots light & dark zero nested glass" {
-  audit_page(model::Page::Snapshots, false, "bunker_snapshots_light")
-  audit_page(model::Page::Snapshots, true, "bunker_snapshots_dark")
+test "install popover: source step and plan step" {
+  audit_popover("install_step1", .Mods, fn(s : model::Store) -> Unit { s.install_open.set(true) }, "选择本地压缩包")
+  audit_popover(
+    "install_step2",
+    .Mods,
+    fn(s : model::Store) -> Unit {
+      demo_plan(s)
+      s.install_open.set(true)
+    },
+    "确认安装",
+  )
 }
 
-test "bunker config light & dark zero nested glass" {
-  audit_page(model::Page::Config, false, "bunker_config_light")
-  audit_page(model::Page::Config, true, "bunker_config_dark")
+test "pressing launch with an incompatible mod opens the gate popover" {
+  let s = model::Store::demo()
+  demo_conflict(s)
+  let t = open_tree(s, false, 1200.0)
+  t.press("一键启动游戏")
+  t.run_for(600.0)
+  debug_assert(s.gate_open.untracked(), "gate opened")
+  debug_assert(t.find("仍然启动").is_some(), "gate step 1")
+  lg::assert_apple_ui(t, label="bunker_gate_pressed", allow_large_overlay=true)
+  t.dispose()
 }

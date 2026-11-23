@@ -1,0 +1,69 @@
+// Bunker's window drawn offscreen at 3x with invar's Apple Metal renderer (`film::picture`), on the demo store:
+//   BUNKER_SHOTS=<dir> bunker_shots
+
+import "film"
+import "host"
+import "lg"
+import "model"
+import "shell"
+import "ui"
+import "view"
+
+fn shot(dir : String, name : String, dark : Bool, page : model::Page, setup~ : (model::Store) -> Unit = fn(_s : model::Store) -> Unit { () }, w~ : Double = 1200.0) -> Bool {
+  lg::set_dark(Some(dark))
+  let s = model::Store::demo()
+  s.page.set(page)
+  setup(s)
+  let path = "\{dir}/\{name}.png"
+  let ok = film::picture(
+    fn(root : view::View) -> Unit { shell::bunker_app(root, s) },
+    path=path,
+    w=w,
+    h=760.0,
+    scale=3.0,
+    dark=dark,
+    at=1000.0,
+    theme=lg::ui_theme,
+  )
+  film::say("bunker_shots: \{path} \{ok}")
+  ok
+}
+
+fn main() -> Unit {
+  host::install()
+  let dir = ui::env("BUNKER_SHOTS")
+  let _ = shot(dir, "play_light", false, .Play)
+  let _ = shot(dir, "play_dark", true, .Play)
+  let _ = shot(dir, "mods_light", false, .Mods)
+  let _ = shot(dir, "mods_dark", true, .Mods)
+  let _ = shot(dir, "snapshots_light", false, .Snapshots)
+  let _ = shot(dir, "snapshots_dark", true, .Snapshots)
+  let _ = shot(dir, "config_light", false, .Config)
+  let _ = shot(dir, "config_dark", true, .Config)
+  let _ = shot(dir, "play_narrow_light", false, .Play, w=720.0)
+  let _ = shot(dir, "mods_narrow_dark", true, .Mods, w=720.0)
+  let _ = shot(dir, "popover_instance_light", false, .Play, setup=fn(s : model::Store) -> Unit { s.inst_open.set(true) })
+  let _ = shot(dir, "popover_instance_step2_light", false, .Play, setup=fn(s : model::Store) -> Unit {
+    shell::demo_import(s)
+    s.inst_open.set(true)
+  })
+  let _ = shot(dir, "popover_role_light", false, .Play, setup=fn(s : model::Store) -> Unit { s.role_open.set(true) })
+  let _ = shot(dir, "popover_gate_light", false, .Play, setup=fn(s : model::Store) -> Unit {
+    shell::demo_conflict(s)
+    s.gate_open.set(true)
+  })
+  let _ = shot(dir, "popover_gate_step2_light", false, .Play, setup=fn(s : model::Store) -> Unit {
+    shell::demo_conflict(s)
+    s.gate_step.set(2)
+    s.gate_open.set(true)
+  })
+  let _ = shot(dir, "popover_install_step1_light", false, .Mods, setup=fn(s : model::Store) -> Unit { s.install_open.set(true) })
+  let _ = shot(dir, "popover_install_step2_light", false, .Mods, setup=fn(s : model::Store) -> Unit {
+    shell::demo_plan(s)
+    s.install_open.set(true)
+  })
+  let _ = shot(dir, "popover_install_step2_dark", true, .Mods, setup=fn(s : model::Store) -> Unit {
+    shell::demo_plan(s)
+    s.install_open.set(true)
+  })
+}

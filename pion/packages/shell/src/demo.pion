@@ -1,0 +1,79 @@
+// Demo states on top of `model::Store::demo()` for the Tester gates (`shell_test.pion`) and the offscreen shots
+// (`pion/cmd/shots`): an incompatible client mod others depend on, an install plan, instances found on disk.
+
+import "model"
+
+/// Adds an enabled client mod built for an older SPT (with a fix link) that another mod depends on.
+pub fn demo_conflict(s : model::Store) -> Unit {
+  let mods : Array[model::ModItem] = []
+  for m in s.mods.untracked() {
+    mods.push(m)
+  }
+  mods.push(model::ModItem::{
+    id: "waypoints",
+    name: "Waypoints",
+    author: "DrakiaXYZ",
+    version: "1.6.1",
+    side: "client",
+    enabled: true,
+    managed: true,
+    roots: ["BepInEx/plugins/DrakiaXYZ-Waypoints"],
+    loc_en: 0,
+    loc_ch: 0,
+    source_kind: "github",
+    source_url: "https://github.com/DrakiaXYZ/SPT-Waypoints",
+    compat: "ok",
+    spt_range: "~4.0.0",
+    update: "",
+    dll_status: "incompatible",
+    built_for: "4.0.1",
+    bad_dlls: [model::BadDll::{ path: "BepInEx/plugins/DrakiaXYZ-Waypoints.dll", shown: "DrakiaXYZ-Waypoints.dll", built_for: "4.0.1" }],
+    required_by: [model::ModRef::{ id: "sain", name: "SAIN 2.0 AI Overhaul" }],
+    requires: [],
+    fix_url: "https://github.com/DrakiaXYZ/SPT-Waypoints/releases/latest",
+  })
+  s.mods.set(mods)
+}
+
+/// Puts the install popover on its second step with a reviewed plan.
+pub fn demo_plan(s : model::Store) -> Unit {
+  s.plan.set(Some(model::Plan::{
+    id: "plan-1",
+    archive: "LootValue-1.4.2.zip",
+    name: "LootValue",
+    version: "1.4.2",
+    target: "4.1.6",
+    replaces: "",
+    adapted: true,
+    mappings: [
+      model::PlanMapping::{ from: "BepInEx/plugins/LootValue", to: "BepInEx/plugins/LootValue", side: "client", files: 3 },
+      model::PlanMapping::{ from: "SPT/user/mods/LootValue-Server", to: "SPT_Runtime/user/mods/LootValue-Server", side: "server", files: 7 },
+    ],
+    conflicts: [],
+    skipped: [],
+    warnings: [],
+    files: 10,
+  }))
+  s.install_step.set(2)
+}
+
+/// Puts the instance popover on its import step with a typed path recognised and one more install found on disk.
+pub fn demo_import(s : model::Store) -> Unit {
+  let found = model::Inst::{
+    root: "E:\\SPT-4.1.6-Test",
+    name: "SPT-4.1.6-Test",
+    layout: "spt4",
+    spt_version: "4.1.6",
+    eft_version: "0.16.1.35392",
+    server_mods_dir: "SPT_Runtime\\user\\mods",
+    client_plugins_dir: "BepInEx\\plugins",
+    profiles_dir: "SPT_Runtime\\user\\profiles",
+    server_exe: "SPT_Runtime\\SPT.Server.exe",
+    client_exe: "EscapeFromTarkov.exe",
+    valid: true,
+    problems: [],
+  }
+  s.found.set([found])
+  s.probe.set(Some(found))
+  s.inst_step.set(2)
+}

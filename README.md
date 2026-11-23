@@ -22,40 +22,46 @@ An open-source desktop launcher and mod manager for SPT (Single Player Tarkov): 
 
 ```
 bunker/
-├── core/            Rust：实例探测、服务端/游戏、Mod、快照、配置（staticlib，cargo test）
-│   ├── src/api.rs   请求分发：{"op": "...", ...} → JSON 应答
-│   ├── src/lib.rs   C ABI：bunker_set_post / bunker_call / bunker_call_data
+├── core/                 Rust：实例探测、服务端/游戏、Mod、快照、配置（staticlib，cargo test）
+│   ├── src/api.rs        请求分发：{"op": "...", ...} → JSON 应答
+│   ├── src/lib.rs        C ABI：bunker_set_post / bunker_call / bunker_call_data
 │   ├── src/bin/fake_spt.rs   测试用的假服务端和假游戏（HTTPS、彩色日志、Ctrl+Break）
-│   └── tests/e2e.rs 端到端：服务端、登录、启动游戏、GitHub 安装、C ABI
-├── ui/              MoonBit / mbui
-│   ├── src/app      main：窗口、core 消息通道
-│   ├── src/corelink C 桩：把 core 的应答经 mb_post 送到 "core" 通道
-│   ├── src/model    状态（signals）和对 core 的请求
-│   └── src/shell    界面：标题栏、侧栏、四个视图、三个弹层（同一弹层内逐步切换）；控件用 @sf
-├── scripts/         fetch-mbui.sh（按 mbui.pin 拉取 libs/mbui、libs/sf-ui 到 vendor/）、build-win.sh、check-ui.sh
-└── mbui.pin         固定 AFK-surf/monoid 的提交
+│   └── tests/e2e.rs      端到端：服务端、登录、启动游戏、GitHub 安装、C ABI
+├── pion/
+│   ├── cmd/app           入口：窗口（无系统标题栏、首帧画好才显示）、core 消息在每帧前取走
+│   ├── cmd/shots         离屏出图：invar 的 Metal 渲染器按 3x 画出各页面和弹层
+│   ├── packages/corelink C 桩：core 的应答进队列并立即唤醒窗口（mb_host_wake_now）
+│   ├── packages/model    状态（signals）和对 core 的请求
+│   └── packages/shell    界面（Pion-JSX + invar `lg`）：SplitShell 侧栏 + 四个 PageShell 页面、四个弹层（同一弹层内逐步切换）
+├── assets/               Windows 资源：MBUI_ENV（MBUI_APP_ID=Bunker，着色器缓存到磁盘）
+└── tools/                deps.sh（按固定提交拉 AFK-surf/invar 到 pion/deps/invar）、check.sh、build-win.sh、win-cc.c
 ```
 
-core 在自己的线程上处理每个请求，应答和事件（服务端日志、服务端状态、游戏进程）经 mbui 的 `mb_post` 在帧与帧之间送到 UI。UI 只读写 signals，构建期不调 core。
+core 在自己的线程上处理每个请求，应答和事件（服务端日志、服务端状态、游戏进程）进 `core_link.c` 的队列并唤醒窗口，窗口在下一帧前（`ui::on_before_frame`）取走，没有定时轮询。UI 只读写 signals，构建期不调 core。
+
+界面按 invar `packages/lg` 的苹果两层结构：页面内容是实色的（`lg::surface()` 色板、`SurfaceCard` / `SurfaceSection` / `liquid_list_node`，里面的按钮都是 flat），液态玻璃只用在浮在上面的东西：顶栏药丸、搜索和筛选条、启动按钮、弹层和提示。
 
 ## 构建（Windows）
 
-需要：Git Bash、Visual Studio 2022（C++ 工具）、Rust（stable，MSVC）、[MoonBit](https://www.moonbitlang.com/download/)。
+需要：Git Bash、LLVM（clang，MSVC 目标）+ Visual Studio Build Tools 的库和 Windows SDK、Rust（stable，MSVC）、自举好的 [pionc](https://github.com/AFK-surf/pion)。
 
 ```sh
-bash scripts/build-win.sh        # → out/win/Bunker.exe
+sh tools/build-win.sh        # → out/Bunker.exe
 ```
 
-脚本会按 `mbui.pin` 拉取 `libs/mbui` 和 `libs/sf-ui` 到 `vendor/mbui`、`vendor/sf-ui`、导入 MSVC 环境、编 `core/`（静态 CRT），再用 mbui 自带的 `scripts/win.sh` 编外部模块 `ui/`。
+脚本按 `tools/deps.sh` 的固定提交拉 invar、编 `core/`、用 clang 编 Pion 运行时和 `assets/app.rc`，再用 pionc 编 `pion/cmd/app`。
 
 ## 测试
 
 ```sh
-cd core && cargo test                 # core：单元测试和端到端测试（全部在临时目录里跑，不碰真实安装）
-T=1 bash scripts/check-ui.sh            # UI：moon check 和 mbui Tester 测试（配假 core）
+cd core && cargo test                                   # core：单元测试和端到端测试（全部在临时目录里跑，不碰真实安装）
+PIONC=pionc2 sh tools/check.sh                          # UI：静态门禁（不手写 Glass::liquid）+ pionc check + Tester 门禁
+pionc2 build -o out/bunker_shots pion/cmd/shots && BUNKER_SHOTS=shots out/bunker_shots   # macOS：3x 离屏预览图
 ```
 
-CI（`.github/workflows/ci.yml`）在 GitHub 免费 runner 上跑：Windows 跑 core 测试并构建 `Bunker.exe`（产物上传为 artifact），Linux 跑 UI 测试。
+UI 的 Tester 门禁（`pion/packages/shell/src/shell_test.pion`）对四个页面 × 深浅色 × 宽窄窗口和每个弹层的每一步跑 `lg::assert_apple_ui`：玻璃不叠玻璃、内容层玻璃不超过 45%、滚动区没有失效、同心圆角、热区和文字不溢出。
+
+CI（`.github/workflows/ci.yml`）在 GitHub 免费 runner 上跑 core 的测试。
 
 ## 数据位置
 

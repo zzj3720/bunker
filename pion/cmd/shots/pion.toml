@@ -1,0 +1,27 @@
+[package]
+name = "bunker_shots"
+version = "0.1.0"
+
+[dependencies]
+film = { path = "../../deps/invar/packages/film" }
+host = { path = "../../deps/invar/packages/host" }
+lg = { path = "../../deps/invar/packages/lg" }
+ui = { path = "../../deps/invar/packages/ui" }
+view = { path = "../../deps/invar/packages/view" }
+model = { path = "../../packages/model" }
+shell = { path = "../../packages/shell" }
+
+[link.macos]
+frameworks = [
+  "Foundation",
+  "Cocoa",
+  "Metal",
+  "QuartzCore",
+  "CoreText",
+  "CoreGraphics",
+  "ImageIO",
+  "AVFoundation",
+  "CoreMedia",
+  "CoreVideo",
+  "WebKit",
+]
