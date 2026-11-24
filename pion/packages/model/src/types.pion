@@ -330,8 +330,31 @@ pub fn ModItem::with_update(self : ModItem, latest : String) -> ModItem {
   }
 }
 
+/// A mod's side: core's `ModView` says it as `server`/`client` flags (`side` only in older fixtures).
+pub fn mod_side(j : hostapi::JsonValue) -> String {
+  let side = jstr(j, "side")
+  if side != "" {
+    return side
+  }
+  let server = jbool(j, "server")
+  let client = jbool(j, "client")
+  if server && client {
+    "both"
+  } else if server {
+    "server"
+  } else if client {
+    "client"
+  } else {
+    ""
+  }
+}
+
 pub fn ModItem::from_json(j : hostapi::JsonValue) -> ModItem {
-  let loc = jget(j, "locale")
+  // core's ModView calls it `loc` with `ch`/`other` counts; `locale`/`en` is the older shape.
+  let loc = match jget(j, "loc") {
+    hostapi::JsonValue::JObject(m) => hostapi::JsonValue::JObject(m)
+    _ => jget(j, "locale")
+  }
   let bad_dlls : Array[BadDll] = []
   for b in jarr(j, "bad_dlls") {
     bad_dlls.push(BadDll::{
@@ -353,11 +376,11 @@ pub fn ModItem::from_json(j : hostapi::JsonValue) -> ModItem {
     name: jstr(j, "name"),
     author: jstr(j, "author"),
     version: jstr(j, "version"),
-    side: jstr(j, "side"),
+    side: mod_side(j),
     enabled: jbool(j, "enabled"),
     managed: jbool(j, "managed"),
     roots: jstrings(jarr(j, "roots")),
-    loc_en: jint(loc, "en"),
+    loc_en: if jint(loc, "other") > 0 { jint(loc, "other") } else { jint(loc, "en") },
     loc_ch: jint(loc, "ch"),
     source_kind: jstr(j, "source_kind"),
     source_url: jstr(j, "source_url"),

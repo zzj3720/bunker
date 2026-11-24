@@ -166,7 +166,9 @@ fn mod_row(parent : view::View, s : model::Store, m : signals::Signal[model::Mod
         <Label text_by=>{m.get().name} size={14.5} weight={600} />
         <Label text_by=>{if m.get().version != "" { "v\{m.get().version}" } else { "" }} size={12.0} secondary />
         <Label text_by=>{if m.get().author != "" { m.get().author } else { "" }} size={12.0} secondary />
-        <lg::Badge label_by=>{side_label(m.get().side)} tone={.Neutral} />
+        <ui::Show when=>{m.get().side != ""} at_once>
+          <lg::Badge label_by=>{side_label(m.get().side)} tone={.Neutral} />
+        </ui::Show>
         <ui::Show when=>{m.get().update != ""} at_once>
           <lg::Badge label_by=>{"可升级 v\{m.get().update}"} tone={.Accent} dot />
         </ui::Show>

@@ -1,0 +1,25 @@
+// ModItem::from_json against the JSON core's ModView really sends (server/client flags, no `side`).
+
+import "hostapi"
+
+fn mod_json(raw : String) -> ModItem {
+  match hostapi::json_parse(raw) {
+    Some(j) => ModItem::from_json(j)
+    None => panic("bad fixture json")
+  }
+}
+
+test "mod side comes from core's server/client flags" {
+  debug_assert(mod_json("{\"id\":\"a\",\"server\":true,\"client\":false}").side == "server", "server only")
+  debug_assert(mod_json("{\"id\":\"b\",\"server\":false,\"client\":true}").side == "client", "client only")
+  debug_assert(mod_json("{\"id\":\"c\",\"server\":true,\"client\":true}").side == "both", "both")
+  debug_assert(mod_json("{\"id\":\"d\",\"server\":false,\"client\":false}").side == "", "neither")
+  debug_assert(mod_json("{\"id\":\"e\",\"side\":\"client\"}").side == "client", "explicit side kept")
+}
+
+test "mod Chinese counts come from core's loc object" {
+  let m = mod_json("{\"id\":\"a\",\"loc\":{\"status\":\"full\",\"ch\":232,\"other\":232,\"langs\":[\"ch\",\"en\"]}}")
+  debug_assert(m.loc_ch == 232 && m.loc_en == 232, "loc ch/other")
+  let old = mod_json("{\"id\":\"b\",\"locale\":{\"ch\":3,\"en\":5}}")
+  debug_assert(old.loc_ch == 3 && old.loc_en == 5, "older locale shape")
+}
