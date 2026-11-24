@@ -107,19 +107,26 @@ pub fn mods_page(pg : view::View, root : view::View, s : model::Store, back : ()
       >
         <ui::Box
           ref_view={fn(list : view::View) {
-            list.show(fn() { s.mods_shown().length() == 0 }, at_once=true, fn(empty : view::View) -> Unit {
+            // Filtered once per change of the mods, the query or the filter, not once per row: each row's divider
+            // reads only which mod comes first (89 rows each filtering all 89 cost a page switch ~8k string scans).
+            let shown = signals::computed_ref(fn(_ : Option[Array[model::ModItem]]) { s.mods_shown() })
+            let first_id = signals::computed(fn(_ : Option[String]) {
+              let a = shown.get()
+              if a.length() > 0 { a[0].id } else { "" }
+            })
+            list.show(fn() { shown.get().length() == 0 }, at_once=true, fn(empty : view::View) -> Unit {
               <SectionRow in={empty}>
                 <Label text="没有匹配的 Mod。" size={14.0} secondary />
               </SectionRow>
             })
             list.each(
-              fn() { s.mods_shown() },
+              fn() { shown.get() },
               fn(m : model::ModItem) -> String { m.id },
               fn(slot : view::View, m : signals::Signal[model::ModItem]) -> Unit {
                 slot.show(
                   fn() {
-                    let shown = s.mods_shown()
-                    shown.length() > 0 && shown[0].id != m.get().id
+                    let first = first_id.get()
+                    first != "" && first != m.get().id
                   },
                   at_once=true,
                   fn(d : view::View) -> Unit { <Divider in={d} /> },

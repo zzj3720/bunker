@@ -35,7 +35,9 @@ pub fn bunker_app(root : view::View, s : model::Store) -> Unit {
     show_detail_by=>{show_detail.get()}
     sidebar={fn(sb : view::View) -> Unit { sidebar(sb, root, s, show_detail) }}
     detail={fn(dt : view::View) -> Unit {
-      dt.pick(fn() { model::page_index(s.page.get()) }, at_once=true, fn(pg : view::View, idx : Int) -> Unit {
+      // `keeps`: a page left is parked, not torn down, so coming back to Mod (89 rows) or 配置文件 (113) is not a fresh
+      // mount (measured on Windows: ~72 ms of layout and ~44 ms of encode each time it was made again).
+      dt.pick(fn() { model::page_index(s.page.get()) }, at_once=true, keeps=true, fn(pg : view::View, idx : Int) -> Unit {
         let _ = pg.fill()
         if idx == 1 {
           mods_page(pg, root, s, back)
