@@ -1,7 +1,7 @@
 #!/bin/sh
-# Fetches pinned official AFK-surf/invar (main 0a96a39) into pion/deps/invar.
+# Fetches pinned official AFK-surf/invar (main bf859b3) into pion/deps/invar.
 set -e
-REV=0a96a39fa80304395155874266790461dbb53989
+REV=bf859b35852e7dca9ea8049c822bd66529558134
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 DIR="$ROOT/pion/deps/invar"
 REPO="${INVAR_REPO:-https://github.com/AFK-surf/invar.git}"
