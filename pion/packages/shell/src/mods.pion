@@ -34,6 +34,36 @@ fn filter_index(key : String) -> Int {
   0
 }
 
+fn ModsSearch(parent : view::View, s~ : model::Store, search~ : ui::Field) -> view::View {
+  <ui::Box
+    in={parent}
+    grow={1.0}
+    min_width={0.0}
+    ref_view={fn(v : view::View) {
+      let _ = lg::liquid_search_bar_node(
+        v,
+        search,
+        placeholder="搜索 Mod 名称、作者或目录",
+        label=fn() { "搜索 Mod" },
+        edited=fn(q : String) -> Unit { s.mods_query.set(q) },
+        on_clear=fn() -> Unit { s.mods_query.set("") },
+      )
+    }}
+  />
+  parent
+}
+
+fn ModsFilters(parent : view::View, root~ : view::View, s~ : model::Store) -> view::View {
+  <lg::Segmented
+    in={parent}
+    labels={["全部", "已启用", "已禁用", "有更新", "不兼容"]}
+    selected_by=>{filter_index(s.mods_filter.get())}
+    on_select={fn(i : Int) -> Unit { s.mods_filter.set(filter_keys[i]) }}
+  />
+  <InstallPicker in={parent} root={root} s={s} />
+  parent
+}
+
 pub fn mods_page(pg : view::View, root : view::View, s : model::Store, back : () -> Unit) -> Unit {
   let search = ui::Field::new()
   <lg::PageShell
@@ -48,28 +78,29 @@ pub fn mods_page(pg : view::View, root : view::View, s : model::Store, back : ()
     }}
   >
     <ui::Col pad_x={24.0} gap={16.0}>
-      <ui::Row align={.Middle} gap={10.0}>
-        <ui::Box
-          grow={1.0}
-          min_width={0.0}
-          ref_view={fn(v : view::View) {
-            let _ = lg::liquid_search_bar_node(
-              v,
-              search,
-              placeholder="搜索 Mod 名称、作者或目录",
-              label=fn() { "搜索 Mod" },
-              edited=fn(q : String) -> Unit { s.mods_query.set(q) },
-              on_clear=fn() -> Unit { s.mods_query.set("") },
-            )
-          }}
-        />
-        <lg::Segmented
-          labels={["全部", "已启用", "已禁用", "有更新", "不兼容"]}
-          selected_by=>{filter_index(s.mods_filter.get())}
-          on_select={fn(i : Int) -> Unit { s.mods_filter.set(filter_keys[i]) }}
-        />
-        <InstallPicker root={root} s={s} />
-      </ui::Row>
+      <ui::Box
+        ref_view={fn(bar : view::View) {
+          // Wide: search, filter and install share one row. Narrow: the search field gets its own row,
+          // or the filter's five segments squeeze it under its 36pt room.
+          bar.show(fn() { !is_narrow(bar) }, at_once=true, fn(r : view::View) -> Unit {
+            <ui::Row in={r} align={.Middle} gap={10.0}>
+              <ModsSearch s={s} search={search} />
+              <ModsFilters root={root} s={s} />
+            </ui::Row>
+          })
+          bar.show(fn() { is_narrow(bar) }, at_once=true, fn(c : view::View) -> Unit {
+            // 12pt, not 10: at 10 the search field's hit room overlaps the filter row's (ui_craft `apart`).
+            <ui::Col in={c} gap={12.0}>
+              <ui::Row align={.Middle}>
+                <ModsSearch s={s} search={search} />
+              </ui::Row>
+              <ui::Row align={.Middle} gap={10.0}>
+                <ModsFilters root={root} s={s} />
+              </ui::Row>
+            </ui::Col>
+          })
+        }}
+      />
       <lg::SurfaceSection
         header="已安装 Mod"
         footer_by=>{"显示 \{s.mods_shown().length()} / 共 \{s.mods.get().length()} 个 · 禁用的 Mod 暂存在 .bunker/disabled"}
